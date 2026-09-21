@@ -149,3 +149,4 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 .chip.save-failed { color: var(--danger); border-color: var(--danger); }
 .childlist { list-style: none; margin: 6px 0 12px; padding: 0; }
 .childlist li { padding: 3px 0; }
+.cmd { background: var(--surface-2); padding: 8px 10px; border-radius: 6px; overflow-x: auto; user-select: all; }

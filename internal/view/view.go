@@ -284,3 +284,9 @@ func ActorText(s ActorState) string {
 	}
 	return "finished"
 }
+
+// RestartCommand is the command line that starts the server again after the
+// Stop button was used. host is the "host:port" the page was loaded from.
+func RestartCommand(host string) string {
+	return "agentboard serve -addr " + host
+}

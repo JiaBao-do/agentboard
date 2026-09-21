@@ -13,6 +13,7 @@ import (
 	"syscall/js"
 	"time"
 
+	"github.com/JiaBao-do/agentboard/internal/view"
 	"github.com/JiaBao-do/agentboard/model"
 )
 
@@ -35,6 +36,7 @@ type app struct {
 	epic     string
 	showNew  bool
 	loaded   bool
+	stopped  bool
 	live     bool
 	needAuth bool
 	loadErr  string
@@ -81,6 +83,9 @@ func (a *app) loop() {
 }
 
 func (a *app) reload() {
+	if a.stopped {
+		return
+	}
 	data, err := a.api("GET", "/api/state", nil)
 	if err != nil {
 		a.loadErr = err.Error()
@@ -195,6 +200,14 @@ func (a *app) dispatch(typ string, ev js.Value) {
 	case "click close":
 		a.selected, a.detail = "", nil
 		a.render()
+	case "click stop":
+		msg := "Stop the server?\n\nEvery agent and this page lose their connection. " +
+			"Your data is saved first. You must start it again from the command line."
+		if global.Call("confirm", msg).Bool() {
+			a.stopServer()
+		}
+	case "click copy-restart":
+		global.Get("navigator").Get("clipboard").Call("writeText", view.RestartCommand(global.Get("location").Get("host").String()))
 	case "click new":
 		a.showNew = !a.showNew
 		a.render()
@@ -241,6 +254,24 @@ func (a *app) dispatch(typ string, ev js.Value) {
 		a.connect()
 		a.poke()
 	}
+}
+
+// stopServer asks the server to shut down, then shows the stopped screen and
+// stops the live connection so the browser does not keep retrying.
+func (a *app) stopServer() {
+	go func() {
+		if _, err := a.api("POST", "/api/admin/shutdown", map[string]any{}); err != nil {
+			a.notice = "Could not stop the server: " + err.Error()
+			a.render()
+			return
+		}
+		a.stopped = true
+		if a.es.Truthy() {
+			a.es.Set("onerror", js.Null())
+			a.es.Call("close")
+		}
+		a.render()
+	}()
 }
 
 // act runs a mutating request off the event loop, then refreshes.

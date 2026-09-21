@@ -5,7 +5,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"syscall/js"
 )
@@ -24,6 +23,9 @@ func (a *app) api(method, path string, body any) ([]byte, error) {
 	hdr.Set("Accept", "application/json")
 	if a.token != "" {
 		hdr.Set("Authorization", "Bearer "+a.token)
+	}
+	if path == "/api/admin/shutdown" {
+		hdr.Set("X-Agentboard-Action", "shutdown")
 	}
 	opts.Set("method", method)
 	opts.Set("cache", "no-store")
@@ -51,7 +53,7 @@ func (a *app) api(method, path string, body any) ([]byte, error) {
 		}
 		_ = json.Unmarshal(data, &e)
 		if e.Error == "" {
-			e.Error = http.StatusText(status)
+			e.Error = "request failed"
 		}
 		return nil, &httpError{status: status, msg: e.Error}
 	}

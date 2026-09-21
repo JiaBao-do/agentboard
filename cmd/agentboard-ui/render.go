@@ -17,6 +17,9 @@ func (a *app) render() {
 }
 
 func (a *app) page() js.Value {
+	if a.stopped {
+		return a.stoppedView()
+	}
 	if a.needAuth {
 		return a.authView()
 	}
@@ -94,6 +97,7 @@ func (a *app) topbar() js.Value {
 		sel, epicSel, newBtn,
 		el("span", "spacer"),
 		el("label", "small muted", "you: ", me),
+		attr(act(el("button", "", "Stop server"), "stop", ""), "type", "button", "title", "Save and shut the server down"),
 		saveChip,
 		el("span", "live", el("span", dot), label),
 	)
@@ -379,4 +383,15 @@ func (a *app) actorTag(name string) js.Value {
 		tag.Call("appendChild", el("span", "muted small", " · "+txt))
 	}
 	return tag
+}
+
+// stoppedView replaces the board once the server has been stopped.
+func (a *app) stoppedView() js.Value {
+	cmd := view.RestartCommand(global.Get("location").Get("host").String())
+	return el("div", "panel",
+		el("h2", "", "Server stopped"),
+		el("p", "muted", "Your data was saved. Start the server again from a terminal, then reload this page:"),
+		el("pre", "cmd", cmd),
+		attr(act(el("button", "primary", "Copy command"), "copy-restart", ""), "type", "button"),
+	)
 }

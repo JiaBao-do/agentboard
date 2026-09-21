@@ -213,3 +213,9 @@ func TestActorState(t *testing.T) {
 		t.Errorf("state = %+v", s)
 	}
 }
+
+func TestRestartCommand(t *testing.T) {
+	if got := view.RestartCommand("127.0.0.1:7878"); got != "agentboard serve -addr 127.0.0.1:7878" {
+		t.Fatalf("got %q", got)
+	}
+}
