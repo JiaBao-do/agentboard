@@ -32,6 +32,22 @@ gob+deflate was no smaller than JSON+deflate, and JSON stays debuggable and stab
 is 15% larger for a 3x faster encode; Best is 9% smaller for a 7x slower one. Encoding runs in the save queue's
 writer goroutine, never on the request path.
 
+## Activity archive
+
+Once the live activity log exceeds `-max-activity` (default 5,000 entries) the oldest entries move to
+`archive/activity-YYYYMM.jsonl.gz` (month of the entry, UTC). Each file is a series of gzip members, so appending is
+a plain append; each member starts with `{"agentboard_archive":1}` and then one activity JSON object per line.
+Archiving is at-least-once (a crash can duplicate entries); readers dedupe by `id` (`ReadArchive` does). The state
+records `archived_through`. `agentboard export -data DIR -with-archive` merges archives back into one timeline.
+
+## Locking
+
+`agentboard.lock` in the data directory holds `{pid, host, started, addr, token}` (created with O_EXCL). One writer
+per directory. A second server, and the offline commands `export -data`, `dump -data` and `import`, refuse while a live
+process holds it and name its PID and address. A lock whose PID is dead on this host is taken over automatically; a lock from
+another host or an unreadable one is never taken over automatically. `serve -force-unlock` removes only a lock whose
+process is provably dead and never touches data files.
+
 ## Legacy files
 
 Version 1 was plain indented JSON. On first load such a file is kept once, byte for byte, as `board.json.bak`

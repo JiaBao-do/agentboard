@@ -48,6 +48,9 @@ Usage:
   agentboard task release ID                  give a claimed task back
   agentboard task comment ID TEXT             add a comment
   agentboard agent heartbeat [flags]          report that -agent is alive
+  agentboard export [-o FILE] [-gzip]         write the whole board as readable JSON (-data DIR: offline)
+  agentboard dump                             print the board as JSON to stdout
+  agentboard import FILE -data DIR            replace the board from an export (offline; server must be stopped)
   agentboard version
 
 Client commands talk to a running server. Common flags (env in brackets):
@@ -81,6 +84,12 @@ func Run(ctx context.Context, args []string, env func(string) string, stdout, st
 		err = a.task(args[1:])
 	case "agent":
 		err = a.agent(args[1:])
+	case "export":
+		err = a.export(args[1:], false)
+	case "dump":
+		err = a.export(args[1:], true)
+	case "import":
+		err = a.importCmd(args[1:])
 	case "version", "-v", "--version":
 		fmt.Fprintln(stdout, "agentboard", version())
 	case "help", "-h", "--help":
@@ -213,6 +222,8 @@ func (a *app) serve(args []string) error {
 		agentTTL    = fs.Duration("agent-ttl", 2*time.Minute, "an agent is online this long after its last heartbeat")
 		saveMode    = fs.String("save-mode", a.getenv("AGENTBOARD_SAVE_MODE", "async"), "async (write-behind) or sync (save on every change)")
 		debounce    = fs.Duration("save-debounce", 200*time.Millisecond, "async: wait this long for more changes before saving")
+		maxActivity = fs.Int("max-activity", 5000, "archive the oldest activity entries once the live log exceeds this many")
+		forceUnlock = fs.Bool("force-unlock", false, "remove a stale lock file, only if its recorded process is provably dead")
 		maxLatency  = fs.Duration("save-max-latency", 2*time.Second, "async: never postpone a save longer than this")
 		noShutdown  = fs.Bool("disable-shutdown", a.env("AGENTBOARD_DISABLE_SHUTDOWN") != "", "turn off POST /api/admin/shutdown [AGENTBOARD_DISABLE_SHUTDOWN]")
 		webhookURL  = fs.String("webhook", a.env("AGENTBOARD_WEBHOOK"), "POST every change event to this `URL` [AGENTBOARD_WEBHOOK]")
@@ -249,8 +260,22 @@ func (a *app) serve(args []string) error {
 	if err := os.MkdirAll(*data, 0o750); err != nil {
 		return err
 	}
+	if *forceUnlock {
+		if err := agentboard.ForceUnlock(*data); err != nil {
+			return err
+		}
+	}
+	lock, err := agentboard.AcquireLock(*data)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Release() }() // runs last: after the final save
+	if err := lock.SetAddr(ln.Addr().String()); err != nil {
+		return err
+	}
 	board, err := agentboard.Open(agentboard.Options{
-		Store:    agentboard.NewFileStore(filepath.Join(*data, boardFile)),
+		Store:      agentboard.NewFileStore(filepath.Join(*data, boardFile)),
+		ArchiveDir: filepath.Join(*data, "archive"), MaxActivity: *maxActivity,
 		Lease:    *lease,
 		AgentTTL: *agentTTL,
 		SaveMode: mode, SaveDebounce: *debounce, SaveMaxLatency: *maxLatency,

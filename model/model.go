@@ -158,6 +158,8 @@ type State struct {
 	Agents         map[string]*Agent   `json:"agents"`
 	Activity       []Activity          `json:"activity"`
 	NextActivityID int64               `json:"next_activity_id"`
+	// ArchivedThrough is the highest activity ID moved to the archive files.
+	ArchivedThrough int64 `json:"archived_through,omitempty"`
 }
 
 // NewState returns an empty, ready to use State.

@@ -91,6 +91,12 @@ type Options struct {
 	// SaveMaxLatency caps how long continuous activity can postpone a save.
 	// Default: 2s.
 	SaveMaxLatency time.Duration
+	// ArchiveDir, if set, receives old activity entries (see ReadArchive)
+	// once the live log exceeds MaxActivity. Empty: never archive.
+	ArchiveDir string
+	// MaxActivity is the live activity log size that triggers archiving; the
+	// newest half is kept. Default: 5000 entries.
+	MaxActivity int
 }
 
 // SaveMode selects the persistence strategy.
@@ -117,21 +123,23 @@ type Board struct {
 
 	// Write-behind persistence. saveMu serialises saves (lock order: saveMu,
 	// then mu). The fields below it are guarded by mu.
-	saveMu     sync.Mutex
-	mode       SaveMode
-	debounce   time.Duration
-	maxLatency time.Duration
-	kick       chan struct{} // capacity 1: a non-blocking send coalesces bursts
-	stop       chan struct{}
-	wg         sync.WaitGroup
-	closeOnce  sync.Once
-	closed     bool
-	dirty      bool
-	dirtySince time.Time
-	lastSave   time.Time
-	lastErr    error
-	saves      int64
-	failures   int64
+	saveMu      sync.Mutex
+	archiveDir  string
+	maxActivity int
+	mode        SaveMode
+	debounce    time.Duration
+	maxLatency  time.Duration
+	kick        chan struct{} // capacity 1: a non-blocking send coalesces bursts
+	stop        chan struct{}
+	wg          sync.WaitGroup
+	closeOnce   sync.Once
+	closed      bool
+	dirty       bool
+	dirtySince  time.Time
+	lastSave    time.Time
+	lastErr     error
+	saves       int64
+	failures    int64
 }
 
 // Open loads the state from the configured store and returns a Board.
@@ -160,6 +168,9 @@ func Open(o Options) (*Board, error) {
 	if o.SaveMaxLatency <= 0 {
 		o.SaveMaxLatency = 2 * time.Second
 	}
+	if o.MaxActivity <= 0 {
+		o.MaxActivity = 5000
+	}
 	st, err := o.Store.Load()
 	if err != nil {
 		return nil, err
@@ -167,7 +178,8 @@ func Open(o Options) (*Board, error) {
 	b := &Board{
 		st: st, store: o.Store, now: o.Now,
 		agentTTL: o.AgentTTL, lease: o.Lease,
-		subs: map[int]chan Event{},
+		subs:       map[int]chan Event{},
+		archiveDir: o.ArchiveDir, maxActivity: o.MaxActivity,
 		mode: o.SaveMode, debounce: o.SaveDebounce, maxLatency: o.SaveMaxLatency,
 		kick: make(chan struct{}, 1), stop: make(chan struct{}),
 	}
@@ -290,6 +302,13 @@ func (b *Board) writer() {
 func (b *Board) saveNow() error {
 	b.saveMu.Lock()
 	defer b.saveMu.Unlock()
+	if err := b.archiveOld(); err != nil {
+		b.mu.Lock()
+		b.lastErr = err
+		b.failures++
+		b.mu.Unlock()
+		return err
+	}
 	b.mu.Lock()
 	if !b.dirty {
 		b.mu.Unlock()
@@ -322,17 +341,54 @@ func (b *Board) saveNow() error {
 	return err
 }
 
+// archiveOld moves the oldest activity entries to the archive files when the
+// live log is too long. The archive is written first, then the entries are
+// dropped from the state (which marks it dirty so the shorter log is
+// saved): a crash in between duplicates entries in the archive, never loses
+// them. Called with saveMu held, so it never runs concurrently with a save.
+func (b *Board) archiveOld() error {
+	b.mu.Lock()
+	if b.archiveDir == "" || len(b.st.Activity) <= b.maxActivity {
+		b.mu.Unlock()
+		return nil
+	}
+	cut := len(b.st.Activity) - b.maxActivity/2
+	batch := append([]model.Activity(nil), b.st.Activity[:cut]...)
+	cutID := batch[len(batch)-1].ID
+	b.mu.Unlock()
+
+	if err := appendArchive(b.archiveDir, batch); err != nil {
+		return err
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	i := 0
+	for i < len(b.st.Activity) && b.st.Activity[i].ID <= cutID {
+		i++
+	}
+	b.st.Activity = append([]model.Activity(nil), b.st.Activity[i:]...) // fresh array: snapshots never alias it
+	if cutID > b.st.ArchivedThrough {
+		b.st.ArchivedThrough = cutID
+	}
+	if !b.dirty {
+		b.dirty, b.dirtySince = true, b.now().UTC()
+	}
+	return nil
+}
+
 // snapshotStateLocked deep-copies the state for saving outside the lock. The
 // activity log is append-only, so the copy shares its backing array but
 // caps the slice so later appends cannot alias it.
 func (b *Board) snapshotStateLocked() *model.State {
 	c := &model.State{
-		Version:        b.st.Version,
-		Projects:       make(map[string]*model.Project, len(b.st.Projects)),
-		Tasks:          make(map[string]*model.Task, len(b.st.Tasks)),
-		Agents:         make(map[string]*model.Agent, len(b.st.Agents)),
-		Activity:       b.st.Activity[:len(b.st.Activity):len(b.st.Activity)],
-		NextActivityID: b.st.NextActivityID,
+		Version:         b.st.Version,
+		Projects:        make(map[string]*model.Project, len(b.st.Projects)),
+		Tasks:           make(map[string]*model.Task, len(b.st.Tasks)),
+		Agents:          make(map[string]*model.Agent, len(b.st.Agents)),
+		Activity:        b.st.Activity[:len(b.st.Activity):len(b.st.Activity)],
+		NextActivityID:  b.st.NextActivityID,
+		ArchivedThrough: b.st.ArchivedThrough,
 	}
 	for k, p := range b.st.Projects {
 		cp := *p
