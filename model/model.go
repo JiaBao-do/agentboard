@@ -169,6 +169,29 @@ func NewState() *State {
 	}
 }
 
+// SaveStatus reports the health of persistence, so operators and the UI can
+// tell "saved" from "saving" from "save failed".
+type SaveStatus struct {
+	Mode      string    `json:"mode"`                 // "async" or "sync"
+	Dirty     bool      `json:"dirty"`                // changes not yet on disk
+	LastSave  time.Time `json:"last_save,omitzero"`   // last successful save
+	LastError string    `json:"last_error,omitempty"` // last save failure, cleared on success
+	LagMillis int64     `json:"lag_ms"`               // age of the oldest unsaved change
+	Saves     int64     `json:"saves"`
+	Failures  int64     `json:"failures"`
+}
+
+// State returns "saved", "saving" or "failed".
+func (s SaveStatus) State() string {
+	switch {
+	case s.LastError != "":
+		return "failed"
+	case s.Dirty:
+		return "saving"
+	}
+	return "saved"
+}
+
 // Snapshot is the read model served to the UI: the whole board in one
 // document plus the server clock, so clients need not trust their own.
 type Snapshot struct {
@@ -177,6 +200,7 @@ type Snapshot struct {
 	Tasks    []Task     `json:"tasks"`
 	Agents   []Agent    `json:"agents"`
 	Activity []Activity `json:"activity"` // newest first, capped
+	Save     SaveStatus `json:"save"`
 }
 
 // TaskDetail is a task with its full timeline, oldest first.
