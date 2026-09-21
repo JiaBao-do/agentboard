@@ -1,0 +1,24 @@
+# Build and test output
+/agentboard
+/agentboard.exe
+*.test
+*.out
+cover.out
+coverage.html
+
+# Local board data (may contain your task text)
+/agentboard.json
+/agentboard.json.*.tmp
+*.local.json
+
+# Secrets and local config
+.env
+.env.*
+*.pem
+*.key
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

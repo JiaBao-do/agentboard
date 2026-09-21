@@ -1,0 +1,72 @@
+#!/bin/sh
+# pre-push: verify the exact commit being pushed, from a clean checkout, so a
+# dirty working tree can never mask a broken commit. Enable it once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# Never bypass it with --no-verify: if it fails, fix the code.
+set -eu
+
+zero=0000000000000000000000000000000000000000
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+# golangci-lint and govulncheck usually live in GOPATH/bin.
+PATH="$PATH:$(go env GOPATH)/bin"
+export PATH
+
+check() {
+	echo "pre-push: gofmt"
+	unformatted=$(gofmt -l .)
+	if [ -n "$unformatted" ]; then
+		echo "gofmt needed on:"
+		echo "$unformatted"
+		return 1
+	fi
+
+	echo "pre-push: go mod tidy"
+	cp go.mod "$work/go.mod.orig"
+	if [ -f go.sum ]; then cp go.sum "$work/go.sum.orig"; fi
+	go mod tidy
+	cmp -s go.mod "$work/go.mod.orig" || { echo "go.mod is not tidy"; return 1; }
+	if [ -f "$work/go.sum.orig" ]; then
+		cmp -s go.sum "$work/go.sum.orig" || { echo "go.sum is not tidy"; return 1; }
+	elif [ -f go.sum ]; then
+		echo "go.sum is not tidy"
+		return 1
+	fi
+
+	echo "pre-push: go vet"
+	go vet ./...
+
+	echo "pre-push: go test -race"
+	go test -race -shuffle=on ./...
+
+	echo "pre-push: go build"
+	go build ./...
+
+	if [ -d cmd/agentboard-ui ]; then
+		echo "pre-push: wasm vet + build"
+		GOOS=js GOARCH=wasm go vet ./cmd/agentboard-ui/
+		GOOS=js GOARCH=wasm go build -o "$work/app.wasm" ./cmd/agentboard-ui/
+	fi
+
+	if command -v golangci-lint >/dev/null 2>&1; then
+		echo "pre-push: golangci-lint"
+		golangci-lint run
+	else
+		echo "pre-push: golangci-lint not installed, SKIPPED"
+	fi
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	[ "$local_sha" = "$zero" ] && continue # deleting a ref
+	echo "pre-push: checking $local_ref @ $(echo "$local_sha" | cut -c1-8)"
+	src="$work/src"
+	rm -rf "$src"
+	mkdir -p "$src"
+	git archive "$local_sha" | tar -x -C "$src"
+	(cd "$src" && check)
+done
+
+echo "pre-push: all checks passed"
