@@ -1,3 +1,3 @@
 module github.com/JiaBao-do/agentboard
 
-go 1.27
+go 1.24

@@ -1,4 +1,4 @@
-﻿# agentboard
+# agentboard
 
 A small, self-hosted, Jira-style board for people who run AI agents: see every task's status and
 **which agent is working on it**. One static Go binary, no dependencies, web UI written in Go and
@@ -14,7 +14,7 @@ of who did what.
 
 ## Requirements
 
-Go 1.27 or newer to build; the released binaries need nothing.
+Go 1.24 or newer to build from source (`go install`); released binaries need nothing. The committed WebAssembly UI was built with Go 1.27; `wasm_exec.js` in the repo comes from the same release.
 
 ## Status
 

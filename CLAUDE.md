@@ -1,4 +1,4 @@
-﻿# agentboard
+# agentboard
 
 A Jira-style task board for people who run AI agents: see every task's status and which agent is working
 on it. Go library and single static binary, module `github.com/JiaBao-do/agentboard`. The web UI is Go
@@ -25,7 +25,7 @@ task tracker with agent presence and leases.
 - `internal/cli` + `cmd/agentboard`: the command line.
 
 ## Conventions
-- Requires **Go 1.27+** (`go.mod` says `go 1.27`; CI uses `stable`, pinned to 1.27). Use current idioms: range-over-int, `slices`/`maps`, `iter`, `WaitGroup.Go`, `errors.AsType`. **Zero third-party dependencies**, `go.mod` has no `require`.
+- Requires **Go 1.24+** (`go.mod` says `go 1.24`, no toolchain line; CI runs 1.24 and `stable`). Develop on the latest Go but use **no API newer than 1.24** (no `WaitGroup.Go`, no `errors.AsType`); `go vet` (stdversion) enforces it, and the 1.24 CI job runs the full tests. **Zero third-party dependencies**, `go.mod` has no `require`.
 - Every exported identifier is documented. Tests are table-driven; new behavior needs a new test.
 - Errors are wrapped with `%w` and use the sentinels in `board.go`; the server maps them to HTTP codes.
 - Conventional Commits, one per completed unit; each pushed commit passes the pre-push hook on a clean checkout.
