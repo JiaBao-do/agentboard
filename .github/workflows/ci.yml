@@ -29,7 +29,7 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
-      - name: vet (includes stdversion: nothing newer than the go.mod floor)
+      - name: "vet (stdversion enforces the go.mod floor)"
         run: go vet ./...
       - name: wasm vet and build
         shell: bash
