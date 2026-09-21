@@ -48,6 +48,7 @@ Usage:
   agentboard task release ID                  give a claimed task back
   agentboard task comment ID TEXT             add a comment
   agentboard agent heartbeat [flags]          report that -agent is alive
+  agentboard demo                             fill a running board with a realistic example (idempotent)
   agentboard export [-o FILE] [-gzip]         write the whole board as readable JSON (-data DIR: offline)
   agentboard dump                             print the board as JSON to stdout
   agentboard import FILE -data DIR            replace the board from an export (offline; server must be stopped)
@@ -84,6 +85,8 @@ func Run(ctx context.Context, args []string, env func(string) string, stdout, st
 		err = a.task(args[1:])
 	case "agent":
 		err = a.agent(args[1:])
+	case "demo":
+		err = a.demo(args[1:])
 	case "export":
 		err = a.export(args[1:], false)
 	case "dump":

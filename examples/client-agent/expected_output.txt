@@ -1,0 +1,9 @@
+created DEMO-1 (todo)
+agent example-agent online=true
+claimed DEMO-1 -> in_progress, assignee example-agent
+done DEMO-1 -> done
+  created  example-agent
+  claimed  example-agent
+  status   example-agent
+  comment  example-agent
+  done     example-agent

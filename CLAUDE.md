@@ -13,7 +13,8 @@ task tracker with agent presence and leases.
 - Vuln: `govulncheck ./...`
 - Rebuild the UI after touching `cmd/agentboard-ui`, `internal/view` or `model`: `go generate ./internal/webui`
   (commits `app.wasm` + `wasm_exec.js`; both must come from the same Go release).
-- Run: `go run ./cmd/agentboard serve` then open the printed URL.
+- Run: `go run ./cmd/agentboard serve` then open the printed URL; `agentboard demo` fills it with an example.
+- Local-only notes (`RUNNING.md`, `STATUS.md`) are git-ignored and must never contain paths in tracked files (leakcheck hook).
 
 ## Architecture
 - `model/`: plain data types shared by server, client and the WASM UI (stdlib only, keep it tiny).
@@ -38,14 +39,17 @@ Portability guarantees:
 3. Zero third-party Go dependencies.
 4. Vendor-neutral: no hardcoded GitHub/Claude/Jira/etc. in core code. Agents are generic (`name`, free-text `kind`,
    `meta` map). Product-specific integrations live in `docs/` and `examples/` only.
-5. Data lives in one directory as documented, versioned JSON (`docs/DATA_FORMAT.md`). A newer schema version is
-   refused, never misread. `export`/`import` move a whole board between machines.
+5. Data lives in one directory: `board.json` is a versioned, CRC-32C checksummed, deflated container (`docs/DATA_FORMAT.md`);
+   damage is detected, a newer version is refused (never misread), a corrupt file is never overwritten. Legacy JSON migrates
+   once (kept as `.bak`). `export`/`import` (plain or gzip JSON) move a board between machines.
 6. Config is flags and env vars, plus an optional plain-JSON config file; no hidden state outside the data dir.
    Default bind is 127.0.0.1.
 Runtime guarantees:
-7. One writer per data dir (lock file with PID); writes are atomic (temp file, fsync, rename).
+7. One writer per data dir (`agentboard.lock` with PID/host/addr; stale owners are taken over, foreign ones never); writes are
+   atomic (temp file, fsync, rename); old activity is archived, never dropped.
 8. `Board` serialises all calls; persistence is write-behind but `Flush`/`Close` always leave the store current.
-9. `POST /api/admin/shutdown` requires POST + `X-Agentboard-Action` header + same-origin + allowed Host/token.
+9. Every write names a real actor (never anonymous; `system` is reserved).
+10. `POST /api/admin/shutdown` requires POST + `X-Agentboard-Action` header + same-origin + allowed Host/token.
 
 ## Roadmap
 - Drag and drop between columns, saved filters.

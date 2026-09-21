@@ -218,3 +218,33 @@ func TestForceUnlockFlagRefusesLiveOwner(t *testing.T) {
 		t.Fatal("force-unlock removed a live server's lock")
 	}
 }
+
+func TestDemoSeedsARealisticBoardIdempotently(t *testing.T) {
+	ts, b := testServer(t)
+	env := envOf(map[string]string{"AGENTBOARD_URL": ts.URL})
+	code, out, errw := run(t, env, "demo")
+	if code != 0 || !strings.Contains(out, "6 new tasks") {
+		t.Fatalf("first run: %d %q %q", code, out, errw)
+	}
+	snap := b.Snapshot()
+	counts := map[agentboard.Status]int{}
+	for _, task := range snap.Tasks {
+		counts[task.Status]++
+		if task.CreatedBy == "" || task.CreatedBy == "anonymous" {
+			t.Fatalf("demo task %s has no real author", task.ID)
+		}
+	}
+	for _, st := range []agentboard.Status{agentboard.StatusTodo, agentboard.StatusInProgress, agentboard.StatusReview, agentboard.StatusDone, agentboard.StatusBlocked} {
+		if counts[st] == 0 {
+			t.Errorf("no %s task in the demo", st)
+		}
+	}
+	if len(snap.Agents) != 3 || !snap.Agents[0].Online {
+		t.Fatalf("agents = %+v", snap.Agents)
+	}
+	before := len(snap.Tasks)
+	code, out, _ = run(t, env, "demo")
+	if code != 0 || !strings.Contains(out, "0 new tasks") || len(b.Tasks(agentboard.Filter{})) != before {
+		t.Fatalf("second run must add nothing: %d %q", code, out)
+	}
+}
