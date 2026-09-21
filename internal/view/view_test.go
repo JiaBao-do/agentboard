@@ -185,3 +185,31 @@ func TestHierarchyHelpers(t *testing.T) {
 		t.Errorf("epic progress = %d/%d, want 2/3", done, total)
 	}
 }
+
+func TestActorState(t *testing.T) {
+	agents := []model.Agent{
+		{Name: "batchx-builder", Online: true, CurrentTask: "AB-3"},
+		{Name: "idle-bot", Online: true},
+		{Name: "gone-bot"},
+	}
+	tests := []struct {
+		name  string
+		agent bool
+		text  string
+	}{
+		{"batchx-builder", true, "working on AB-3"},
+		{"idle-bot", true, "online, idle"},
+		{"gone-bot", true, "finished"},
+		{"user", false, ""},   // a person in the UI is not an agent
+		{"system", false, ""}, // the board itself
+	}
+	for _, tc := range tests {
+		s := view.ActorOf(agents, tc.name)
+		if s.Agent != tc.agent || view.ActorText(s) != tc.text {
+			t.Errorf("%s: %+v %q, want agent=%v %q", tc.name, s, view.ActorText(s), tc.agent, tc.text)
+		}
+	}
+	if s := view.ActorOf(agents, "batchx-builder"); !s.Online || s.Task != "AB-3" {
+		t.Errorf("state = %+v", s)
+	}
+}

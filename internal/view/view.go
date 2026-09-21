@@ -251,3 +251,36 @@ func EpicProgress(tasks []model.Task, epic string) (done, total int) {
 	}
 	return done, total
 }
+
+// ActorState says whether the named actor is a registered agent, whether it
+// is running now (recent heartbeat) and which task it is working on.
+type ActorState struct {
+	Agent  bool   // a registered agent (people and "system" are not)
+	Online bool   // heartbeat is recent: running now
+	Task   string // the task it reports working on, if any
+}
+
+// ActorOf looks the actor up among the registered agents.
+func ActorOf(agents []model.Agent, name string) ActorState {
+	for _, a := range agents {
+		if a.Name == name {
+			return ActorState{Agent: true, Online: a.Online, Task: a.CurrentTask}
+		}
+	}
+	return ActorState{}
+}
+
+// ActorText renders an actor's state for humans: "working on AB-3",
+// "online, idle", "finished" (a registered agent that is no longer sending
+// heartbeats) or "" for people and the board itself.
+func ActorText(s ActorState) string {
+	switch {
+	case !s.Agent:
+		return ""
+	case s.Online && s.Task != "":
+		return "working on " + s.Task
+	case s.Online:
+		return "online, idle"
+	}
+	return "finished"
+}

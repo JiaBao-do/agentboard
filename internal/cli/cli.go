@@ -177,7 +177,11 @@ func (a *app) addClientFlags(fs *flag.FlagSet) *clientFlags {
 	return c
 }
 
-func (c *clientFlags) client() *agentboard.Client { return agentboard.NewClient(c.url, c.token) }
+func (c *clientFlags) client() *agentboard.Client {
+	cl := agentboard.NewClient(c.url, c.token)
+	cl.Agent = c.agent
+	return cl
+}
 
 func (c *clientFlags) needAgent() (string, error) {
 	if c.agent == "" {
@@ -358,6 +362,9 @@ func (a *app) project(args []string) error {
 	if len(pos) < 2 {
 		return usagef("usage: agentboard project add KEY NAME")
 	}
+	if _, err := c.needAgent(); err != nil {
+		return err
+	}
 	p, err := c.client().CreateProject(a.ctx, agentboard.ProjectRequest{Key: pos[0], Name: strings.Join(pos[1:], " "), Actor: c.agent})
 	var ae *agentboard.APIError
 	if errors.As(err, &ae) && ae.Status == 409 {
@@ -420,6 +427,9 @@ func (a *app) taskAdd(args []string) error {
 	}
 	if *project == "" || len(pos) == 0 {
 		return usagef("usage: agentboard task add -p KEY [flags] TITLE")
+	}
+	if _, err := c.needAgent(); err != nil {
+		return err
 	}
 	title := strings.Join(pos, " ")
 	cl := c.client()
@@ -600,6 +610,9 @@ func (a *app) taskUpdate(args []string) error {
 	if len(pos) != 1 {
 		return usagef("usage: agentboard task update ID [flags]")
 	}
+	if _, err := c.needAgent(); err != nil {
+		return err
+	}
 	p := agentboard.Patch{Actor: c.agent}
 	fs.Visit(func(f *flag.Flag) { // only flags that were actually given
 		switch f.Name {
@@ -636,6 +649,9 @@ func (a *app) taskComment(args []string) error {
 	}
 	if len(pos) < 2 {
 		return usagef("usage: agentboard task comment ID TEXT")
+	}
+	if _, err := c.needAgent(); err != nil {
+		return err
 	}
 	if err := c.client().Comment(a.ctx, pos[0], c.agent, strings.Join(pos[1:], " ")); err != nil {
 		return err

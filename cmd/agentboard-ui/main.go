@@ -18,7 +18,8 @@ import (
 
 const (
 	tokenKey    = "agentboard.token"
-	webActor    = "web"
+	userKey     = "agentboard.user"
+	defaultUser = "user"
 	pollEvery   = 20 * time.Second
 	recentLimit = 8
 )
@@ -135,6 +136,35 @@ func asHTTP(err error, target **httpError) bool {
 
 // bind installs one delegated listener per event type on the root. Nodes are
 // rebuilt on every render, so per-node listeners would leak.
+// user is the display name humans act under (never "anonymous").
+func (a *app) user() string {
+	if u := storageGet(userKey); u != "" {
+		return u
+	}
+	return defaultUser
+}
+
+// setUser stores a display name, replacing characters the API would refuse.
+func (a *app) setUser(name string) {
+	var b []rune
+	for _, r := range strings.TrimSpace(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
+			b = append(b, r)
+		default:
+			b = append(b, '-')
+		}
+	}
+	if len(b) == 0 || !(b[0] >= 'a' && b[0] <= 'z' || b[0] >= 'A' && b[0] <= 'Z' || b[0] >= '0' && b[0] <= '9') {
+		storageSet(userKey, "")
+		return
+	}
+	if len(b) > 64 {
+		b = b[:64]
+	}
+	storageSet(userKey, string(b))
+}
+
 func (a *app) bind() {
 	for _, name := range []string{"click", "change", "submit"} {
 		typ := name
@@ -171,6 +201,9 @@ func (a *app) dispatch(typ string, ev js.Value) {
 	case "click cancel-new":
 		a.showNew = false
 		a.render()
+	case "change me":
+		a.setUser(n.Get("value").String())
+		a.render()
 	case "change project":
 		a.project = n.Get("value").String()
 		a.render()
@@ -178,26 +211,26 @@ func (a *app) dispatch(typ string, ev js.Value) {
 		a.epic = n.Get("value").String()
 		a.render()
 	case "change set-status":
-		a.act("PATCH", "/api/tasks/"+id, map[string]any{"status": n.Get("value").String(), "actor": webActor}, nil)
+		a.act("PATCH", "/api/tasks/"+id, map[string]any{"status": n.Get("value").String(), "actor": a.user()}, nil)
 	case "change set-priority":
-		a.act("PATCH", "/api/tasks/"+id, map[string]any{"priority": n.Get("value").String(), "actor": webActor}, nil)
+		a.act("PATCH", "/api/tasks/"+id, map[string]any{"priority": n.Get("value").String(), "actor": a.user()}, nil)
 	case "submit create-task":
 		ev.Call("preventDefault")
 		f := formValues(n, "project", "title", "description", "priority", "labels")
 		body := map[string]any{
 			"project": f["project"], "title": f["title"], "description": f["description"],
-			"priority": f["priority"], "actor": webActor,
+			"priority": f["priority"], "actor": a.user(),
 			"labels": splitLabels(f["labels"]),
 		}
 		a.act("POST", "/api/tasks", body, func() { a.showNew = false })
 	case "submit create-project":
 		ev.Call("preventDefault")
 		f := formValues(n, "key", "name")
-		a.act("POST", "/api/projects", map[string]any{"key": strings.ToUpper(f["key"]), "name": f["name"], "actor": webActor}, nil)
+		a.act("POST", "/api/projects", map[string]any{"key": strings.ToUpper(f["key"]), "name": f["name"], "actor": a.user()}, nil)
 	case "submit comment":
 		ev.Call("preventDefault")
 		f := formValues(n, "text")
-		a.act("POST", "/api/tasks/"+id+"/comment", map[string]any{"text": f["text"], "actor": webActor}, func() {
+		a.act("POST", "/api/tasks/"+id+"/comment", map[string]any{"text": f["text"], "actor": a.user()}, func() {
 			n.Call("reset")
 		})
 	case "submit login":

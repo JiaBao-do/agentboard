@@ -115,6 +115,7 @@ type Task struct {
 	LeaseExpires *time.Time `json:"lease_expires,omitempty"`
 	LeaseSeconds int        `json:"lease_seconds,omitempty"`
 	CreatedBy    string     `json:"created_by"`
+	UpdatedBy    string     `json:"updated_by,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }

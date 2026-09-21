@@ -46,7 +46,7 @@ func newBoard(t *testing.T) (*agentboard.Board, *clock) {
 
 func addTask(t *testing.T, b *agentboard.Board, title string) agentboard.Task {
 	t.Helper()
-	task, err := b.AddTask(agentboard.NewTask{Project: "AB", Title: title})
+	task, err := b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: title})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestCreateProject(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			b, _ := newBoard(t)
-			_, err := b.CreateProject(tc.key, tc.title, "")
+			_, err := b.CreateProject(tc.key, tc.title, "tester")
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tc.wantErr)
 			}
@@ -85,24 +85,26 @@ func TestAddTask(t *testing.T) {
 		wantErr error
 		check   func(*testing.T, agentboard.Task)
 	}{
-		{"defaults", agentboard.NewTask{Project: "AB", Title: " Fix it "}, nil, func(t *testing.T, k agentboard.Task) {
+		{"defaults", agentboard.NewTask{Actor: "tester", Project: "AB", Title: " Fix it "}, nil, func(t *testing.T, k agentboard.Task) {
 			if k.ID != "AB-1" || k.Title != "Fix it" || k.Status != agentboard.StatusTodo ||
-				k.Priority != agentboard.PriorityMedium || k.CreatedBy != "anonymous" {
+				k.Priority != agentboard.PriorityMedium || k.CreatedBy != "tester" || k.UpdatedBy != "tester" {
 				t.Fatalf("unexpected task %+v", k)
 			}
 		}},
-		{"labels normalised", agentboard.NewTask{Project: "AB", Title: "x", Labels: []string{" Bug ", "bug", "", "Go:1"}}, nil, func(t *testing.T, k agentboard.Task) {
+		{"labels normalised", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "x", Labels: []string{" Bug ", "bug", "", "Go:1"}}, nil, func(t *testing.T, k agentboard.Task) {
 			if strings.Join(k.Labels, ",") != "bug,go:1" {
 				t.Fatalf("labels = %v", k.Labels)
 			}
 		}},
-		{"unknown project", agentboard.NewTask{Project: "NOPE", Title: "x"}, agentboard.ErrNotFound, nil},
-		{"empty title", agentboard.NewTask{Project: "AB", Title: " "}, agentboard.ErrInvalid, nil},
-		{"long title", agentboard.NewTask{Project: "AB", Title: strings.Repeat("x", 201)}, agentboard.ErrInvalid, nil},
-		{"bad priority", agentboard.NewTask{Project: "AB", Title: "x", Priority: "asap"}, agentboard.ErrInvalid, nil},
-		{"bad label", agentboard.NewTask{Project: "AB", Title: "x", Labels: []string{"has space"}}, agentboard.ErrInvalid, nil},
-		{"too many labels", agentboard.NewTask{Project: "AB", Title: "x", Labels: strings.Split("a,b,c,d,e,f,g,h,i,j,k", ",")}, agentboard.ErrInvalid, nil},
-		{"bad actor", agentboard.NewTask{Project: "AB", Title: "x", Actor: "a b"}, agentboard.ErrInvalid, nil},
+		{"anonymous is refused", agentboard.NewTask{Project: "AB", Title: "x"}, agentboard.ErrInvalid, nil},
+		{"system is reserved", agentboard.NewTask{Actor: "system", Project: "AB", Title: "x"}, agentboard.ErrInvalid, nil},
+		{"unknown project", agentboard.NewTask{Actor: "tester", Project: "NOPE", Title: "x"}, agentboard.ErrNotFound, nil},
+		{"empty title", agentboard.NewTask{Actor: "tester", Project: "AB", Title: " "}, agentboard.ErrInvalid, nil},
+		{"long title", agentboard.NewTask{Actor: "tester", Project: "AB", Title: strings.Repeat("x", 201)}, agentboard.ErrInvalid, nil},
+		{"bad priority", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "x", Priority: "asap"}, agentboard.ErrInvalid, nil},
+		{"bad label", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "x", Labels: []string{"has space"}}, agentboard.ErrInvalid, nil},
+		{"too many labels", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "x", Labels: strings.Split("a,b,c,d,e,f,g,h,i,j,k", ",")}, agentboard.ErrInvalid, nil},
+		{"bad actor", agentboard.NewTask{Actor: "a b", Project: "AB", Title: "x"}, agentboard.ErrInvalid, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -367,6 +369,7 @@ func TestUpdate(t *testing.T) {
 			b, _ := newBoard(t)
 			addTask(t, b, "job")
 			b.Claim("AB-1", "alice", 0)
+			tc.patch.Actor = "tester"
 			got, err := b.Update("AB-1", tc.patch)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tc.wantErr)
@@ -378,7 +381,7 @@ func TestUpdate(t *testing.T) {
 	}
 	t.Run("unknown task", func(t *testing.T) {
 		b, _ := newBoard(t)
-		if _, err := b.Update("AB-1", agentboard.Patch{}); !errors.Is(err, agentboard.ErrNotFound) {
+		if _, err := b.Update("AB-1", agentboard.Patch{Actor: "tester"}); !errors.Is(err, agentboard.ErrNotFound) {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -387,7 +390,7 @@ func TestUpdate(t *testing.T) {
 		addTask(t, b, "job")
 		before := len(b.Recent(1000))
 		same := agentboard.StatusTodo
-		if _, err := b.Update("AB-1", agentboard.Patch{Status: &same, Title: str("job")}); err != nil {
+		if _, err := b.Update("AB-1", agentboard.Patch{Actor: "tester", Status: &same, Title: str("job")}); err != nil {
 			t.Fatal(err)
 		}
 		if after := len(b.Recent(1000)); after != before {
@@ -449,10 +452,10 @@ func TestComment(t *testing.T) {
 
 func TestFilterAndSnapshot(t *testing.T) {
 	b, _ := newBoard(t)
-	b.CreateProject("ZZ", "Other", "")
+	b.CreateProject("ZZ", "Other", "tester")
 	addTask(t, b, "a")
 	addTask(t, b, "b")
-	b.AddTask(agentboard.NewTask{Project: "ZZ", Title: "c"})
+	b.AddTask(agentboard.NewTask{Actor: "tester", Project: "ZZ", Title: "c"})
 	b.Claim("AB-2", "alice", 0)
 
 	if n := len(b.Tasks(agentboard.Filter{Project: "AB"})); n != 2 {
@@ -563,7 +566,7 @@ func TestPersistenceAcrossReopen(t *testing.T) {
 		return b
 	}
 	b := open()
-	b.CreateProject("AB", "Agent Board", "")
+	b.CreateProject("AB", "Agent Board", "tester")
 	addTask(t, b, "first")
 	b.Claim("AB-1", "alice", time.Hour)
 	b.Comment("AB-1", "alice", "note")
@@ -580,7 +583,7 @@ func TestPersistenceAcrossReopen(t *testing.T) {
 		t.Fatalf("reloaded = %+v", d)
 	}
 	// IDs continue where they left off.
-	if got, _ := b2.AddTask(agentboard.NewTask{Project: "AB", Title: "second"}); got.ID != "AB-2" {
+	if got, _ := b2.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "second"}); got.ID != "AB-2" {
 		t.Fatalf("next id = %s", got.ID)
 	}
 }

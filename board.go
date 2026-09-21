@@ -52,7 +52,6 @@ const (
 	maxMetaKeys       = 16
 	maxMetaKey        = 32
 	maxMetaValue      = 256
-	anonymousActor    = "anonymous"
 	systemActor       = "system"
 	subscriberBufSize = 16
 )
@@ -438,7 +437,7 @@ func (b *Board) sweepLocked(now time.Time) int {
 		t := b.st.Tasks[id]
 		prev := t.Assignee
 		t.Status, t.Assignee, t.LeaseExpires, t.LeaseSeconds = model.StatusTodo, "", nil, 0
-		t.UpdatedAt = now
+		t.UpdatedAt, t.UpdatedBy = now, systemActor
 		b.clearCurrentLocked(prev, id)
 		b.log(now, systemActor, id, "lease_expired", "released from "+prev)
 	}
@@ -489,11 +488,16 @@ func (b *Board) taskLocked(id string) (*model.Task, error) {
 	return t, nil
 }
 
-func actorOrDefault(actor string) (string, error) {
-	if actor == "" {
-		return anonymousActor, nil
-	}
-	if !nameRE.MatchString(actor) {
+// requireActor validates who is making a change. Writes are never
+// anonymous: the actor is the registered agent name (or a person's display
+// name such as "user"). The name "system" is reserved for the board itself.
+func requireActor(actor string) (string, error) {
+	switch {
+	case actor == "":
+		return "", invalid("actor required: say who you are (agent name, X-Agent-Name header, -agent or AGENTBOARD_AGENT)")
+	case actor == systemActor:
+		return "", invalid("actor %q is reserved for the board itself", actor)
+	case !nameRE.MatchString(actor):
 		return "", invalid("actor %q must match %s", actor, nameRE)
 	}
 	return actor, nil
@@ -593,7 +597,7 @@ func (b *Board) CreateProject(key, name, actor string) (Project, error) {
 	if name == "" || len(name) > maxTitle {
 		return Project{}, invalid("project name must be 1-%d characters", maxTitle)
 	}
-	actor, err := actorOrDefault(actor)
+	actor, err := requireActor(actor)
 	if err != nil {
 		return Project{}, err
 	}
@@ -638,7 +642,7 @@ func (b *Board) AddTask(in NewTask) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	actor, err := actorOrDefault(in.Actor)
+	actor, err := requireActor(in.Actor)
 	if err != nil {
 		return Task{}, err
 	}
@@ -657,7 +661,7 @@ func (b *Board) AddTask(in NewTask) (Task, error) {
 			Type: kind, Parent: in.Parent,
 			Title: title, Description: in.Description,
 			Status: model.StatusTodo, Priority: prio, Labels: labels,
-			CreatedBy: actor, CreatedAt: now, UpdatedAt: now,
+			CreatedBy: actor, UpdatedBy: actor, CreatedAt: now, UpdatedAt: now,
 		}
 		b.st.Tasks[t.ID] = t
 		b.log(now, actor, t.ID, "created", title)
@@ -696,7 +700,7 @@ func (b *Board) Claim(id, agent string, lease time.Duration) (Task, error) {
 		renewal := t.Assignee == agent && t.Status == model.StatusInProgress
 		exp := now.Add(lease)
 		t.Assignee, t.Status = agent, model.StatusInProgress
-		t.LeaseExpires, t.LeaseSeconds, t.UpdatedAt = &exp, int(lease/time.Second), now
+		t.LeaseExpires, t.LeaseSeconds, t.UpdatedAt, t.UpdatedBy = &exp, int(lease/time.Second), now, agent
 		b.touchAgentLocked(agent, "", id, now)
 		action := "claimed"
 		if renewal {
@@ -724,7 +728,7 @@ func (b *Board) Release(id, agent string) (Task, error) {
 		if t.Assignee != agent {
 			return nil, fmt.Errorf("%w: %s belongs to %s", ErrNotOwner, id, t.Assignee)
 		}
-		t.Status, t.Assignee, t.LeaseExpires, t.LeaseSeconds, t.UpdatedAt = model.StatusTodo, "", nil, 0, now
+		t.Status, t.Assignee, t.LeaseExpires, t.LeaseSeconds, t.UpdatedAt, t.UpdatedBy = model.StatusTodo, "", nil, 0, now, agent
 		b.clearCurrentLocked(agent, id)
 		b.log(now, agent, id, "released", "")
 		out = cloneTask(t)
@@ -754,7 +758,7 @@ func (b *Board) Complete(id, agent string) (Task, error) {
 		if t.Assignee == "" {
 			t.Assignee = agent
 		}
-		t.Status, t.LeaseExpires, t.LeaseSeconds, t.UpdatedAt = model.StatusDone, nil, 0, now
+		t.Status, t.LeaseExpires, t.LeaseSeconds, t.UpdatedAt, t.UpdatedBy = model.StatusDone, nil, 0, now, agent
 		b.clearCurrentLocked(t.Assignee, id)
 		b.log(now, agent, id, "done", "")
 		out = cloneTask(t)
@@ -767,7 +771,7 @@ func (b *Board) Complete(id, agent string) (Task, error) {
 // todo clears the assignee, entering review, blocked or done drops the lease
 // but keeps the assignee so the board still shows who did the work.
 func (b *Board) Update(id string, p Patch) (Task, error) {
-	actor, err := actorOrDefault(p.Actor)
+	actor, err := requireActor(p.Actor)
 	if err != nil {
 		return Task{}, err
 	}
@@ -836,7 +840,7 @@ func (b *Board) Update(id string, p Patch) (Task, error) {
 			out = cloneTask(t)
 			return nil, nil
 		}
-		t.UpdatedAt = now
+		t.UpdatedAt, t.UpdatedBy = now, actor
 		out = cloneTask(t)
 		return &Event{Type: "task", TaskID: id}, nil
 	})
@@ -860,7 +864,7 @@ func (b *Board) Comment(id, actor, text string) error {
 	if text == "" || len(text) > maxComment {
 		return invalid("comment must be 1-%d characters", maxComment)
 	}
-	actor, err := actorOrDefault(actor)
+	actor, err := requireActor(actor)
 	if err != nil {
 		return err
 	}
@@ -869,7 +873,7 @@ func (b *Board) Comment(id, actor, text string) error {
 		if err != nil {
 			return nil, err
 		}
-		t.UpdatedAt = now
+		t.UpdatedAt, t.UpdatedBy = now, actor
 		b.log(now, actor, id, "comment", text)
 		return &Event{Type: "task", TaskID: id}, nil
 	})

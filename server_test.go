@@ -54,11 +54,12 @@ func do(t *testing.T, method, url, body string, hdr map[string]string) (*http.Re
 	return resp, string(data)
 }
 
-var jsonHdr = map[string]string{"Content-Type": "application/json"}
+var jsonHdr = map[string]string{"Content-Type": "application/json", "X-Agent-Name": "tester"}
 
 func TestAPIFlowThroughClient(t *testing.T) {
 	ts, _ := newServer(t, agentboard.ServerOptions{})
 	c := agentboard.NewClient(ts.URL+"/", "")
+	c.Agent = "tester"
 	ctx := context.Background()
 
 	if _, err := c.CreateProject(ctx, agentboard.ProjectRequest{Key: "AB", Name: "Board"}); err != nil {
@@ -67,15 +68,15 @@ func TestAPIFlowThroughClient(t *testing.T) {
 	if _, err := c.CreateProject(ctx, agentboard.ProjectRequest{Key: "AB", Name: "Again"}); apiStatus(err) != http.StatusConflict {
 		t.Fatalf("duplicate project: %v", err)
 	}
-	epic, err := c.AddTask(ctx, agentboard.NewTask{Project: "AB", Type: agentboard.KindEpic, Title: "Epic"})
+	epic, err := c.AddTask(ctx, agentboard.NewTask{Actor: "tester", Project: "AB", Type: agentboard.KindEpic, Title: "Epic"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := c.AddTask(ctx, agentboard.NewTask{Project: "AB", Title: "Do it", Parent: epic.ID, Labels: []string{"go"}})
+	task, err := c.AddTask(ctx, agentboard.NewTask{Actor: "tester", Project: "AB", Title: "Do it", Parent: epic.ID, Labels: []string{"go"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.AddTask(ctx, agentboard.NewTask{Project: "AB", Title: ""}); apiStatus(err) != http.StatusBadRequest {
+	if _, err := c.AddTask(ctx, agentboard.NewTask{Actor: "tester", Project: "AB", Title: ""}); apiStatus(err) != http.StatusBadRequest {
 		t.Fatalf("empty title: %v", err)
 	}
 	if _, err := c.Task(ctx, "AB-99"); apiStatus(err) != http.StatusNotFound {
@@ -223,7 +224,10 @@ func TestRequestValidation(t *testing.T) {
 		{"form post is refused (CSRF)", "POST", "/api/tasks", "project=AB&title=x", map[string]string{"Content-Type": "application/x-www-form-urlencoded"}, 415},
 		{"text/plain post is refused", "POST", "/api/tasks", `{"project":"AB","title":"x"}`, map[string]string{"Content-Type": "text/plain"}, 415},
 		{"no content type", "POST", "/api/tasks", `{"project":"AB","title":"x"}`, nil, 415},
-		{"json with charset ok", "POST", "/api/tasks", `{"project":"AB","title":"x"}`, map[string]string{"Content-Type": "application/json; charset=utf-8"}, 201},
+		{"json with charset ok", "POST", "/api/tasks", `{"project":"AB","title":"x"}`, map[string]string{"Content-Type": "application/json; charset=utf-8", "X-Agent-Name": "tester"}, 201},
+		{"anonymous write is refused", "POST", "/api/tasks", `{"project":"AB","title":"x"}`, map[string]string{"Content-Type": "application/json"}, 400},
+		{"body actor works without the header", "POST", "/api/tasks", `{"project":"AB","title":"x","actor":"alice"}`, map[string]string{"Content-Type": "application/json"}, 201},
+		{"system actor is refused", "POST", "/api/tasks", `{"project":"AB","title":"x","actor":"system"}`, map[string]string{"Content-Type": "application/json"}, 400},
 		{"unknown field", "POST", "/api/tasks", `{"project":"AB","title":"x","typo":1}`, jsonHdr, 400},
 		{"broken json", "POST", "/api/tasks", `{"project":`, jsonHdr, 400},
 		{"trailing data", "POST", "/api/tasks", `{"project":"AB","title":"x"} {}`, jsonHdr, 400},
@@ -354,7 +358,7 @@ func TestEventStream(t *testing.T) {
 	seen := map[string]bool{}
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		b.CreateProject("AB", "n", "")
+		b.CreateProject("AB", "n", "tester")
 	}()
 	deadline := time.AfterFunc(10*time.Second, func() { resp.Body.Close() })
 	defer deadline.Stop()
@@ -466,9 +470,10 @@ func TestShutdownHappyPathKeepsDataAndReloads(t *testing.T) {
 	}
 	base, done, _ := serveOn(t, b, agentboard.ServerOptions{EnableShutdown: true, AllowedHosts: []string{"127.0.0.1"}})
 	c := agentboard.NewClient(base, "")
+	c.Agent = "tester"
 	ctx := context.Background()
 	c.CreateProject(ctx, agentboard.ProjectRequest{Key: "AB", Name: "n"})
-	task, _ := c.AddTask(ctx, agentboard.NewTask{Project: "AB", Title: "survive"})
+	task, _ := c.AddTask(ctx, agentboard.NewTask{Actor: "tester", Project: "AB", Title: "survive"})
 	c.Claim(ctx, task.ID, "alice", time.Hour)
 
 	// An in-flight request: an open event stream must be ended politely, not
@@ -584,7 +589,7 @@ func TestWebhookDeliversSignedEvents(t *testing.T) {
 	wh := &agentboard.Webhook{URL: recv.URL, Secret: "topsecret"}
 	wait := wh.Start(ctx, b) // subscribed before Start returns: nothing below can be missed
 
-	b.CreateProject("AB", "n", "")
+	b.CreateProject("AB", "n", "tester")
 	var first hit
 	select {
 	case first = <-hits:
@@ -594,7 +599,7 @@ func TestWebhookDeliversSignedEvents(t *testing.T) {
 	if first.evt != "project" {
 		t.Fatalf("event header = %q", first.evt)
 	}
-	task, _ := b.AddTask(agentboard.NewTask{Project: "AB", Title: "hooked"})
+	task, _ := b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "hooked"})
 	var h hit
 	select {
 	case h = <-hits:
@@ -632,7 +637,7 @@ func TestWebhookWithoutSecretIsUnsignedAndFailuresDoNotBlock(t *testing.T) {
 
 	started := time.Now()
 	for i := range 20 { // a failing endpoint must never slow the board down
-		b.CreateProject("P"+string(rune('A'+i)), "n", "")
+		b.CreateProject("P"+string(rune('A'+i)), "n", "tester")
 	}
 	if took := time.Since(started); took > 5*time.Second {
 		t.Errorf("20 changes took %v with a failing webhook", took)
@@ -701,5 +706,50 @@ func TestClientErrorsAndRawMessages(t *testing.T) {
 	}
 	if err := agentboard.NewClient(raw.URL, "").Shutdown(context.Background()); apiStatus(err) != 502 {
 		t.Fatalf("shutdown err = %v", err)
+	}
+}
+
+func TestWritesAreAttributedToTheActingAgent(t *testing.T) {
+	ts, _ := newServer(t, agentboard.ServerOptions{})
+	post := func(path, body, agent string) *http.Response {
+		hdr := map[string]string{"Content-Type": "application/json"}
+		if agent != "" {
+			hdr["X-Agent-Name"] = agent
+		}
+		resp, _ := do(t, "POST", ts.URL+path, body, hdr)
+		return resp
+	}
+	if r := post("/api/projects", `{"key":"AB","name":"n"}`, ""); r.StatusCode != 400 {
+		t.Fatalf("anonymous project = %d", r.StatusCode)
+	}
+	post("/api/projects", `{"key":"AB","name":"n"}`, "batchx-builder")
+	post("/api/tasks", `{"project":"AB","title":"t"}`, "batchx-builder")
+	post("/api/tasks/AB-1/claim", `{}`, "worker-1")
+	post("/api/tasks/AB-1/comment", `{"text":"hi"}`, "worker-1")
+	_, body := do(t, "GET", ts.URL+"/api/tasks/AB-1", "", nil)
+	var d agentboard.TaskDetail
+	if err := json.Unmarshal([]byte(body), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.Task.CreatedBy != "batchx-builder" || d.Task.UpdatedBy != "worker-1" || d.Task.Assignee != "worker-1" {
+		t.Fatalf("task = %+v", d.Task)
+	}
+	var actors []string
+	for _, e := range d.Activity {
+		actors = append(actors, e.Actor)
+	}
+	if got := strings.Join(actors, ","); got != "batchx-builder,worker-1,worker-1" {
+		t.Fatalf("timeline actors = %s", got)
+	}
+}
+
+func TestLeaseExpiryIsAttributedToTheSystem(t *testing.T) {
+	b, c := newBoard(t)
+	addTask(t, b, "job")
+	b.Claim("AB-1", "alice", time.Minute)
+	c.Advance(time.Minute)
+	d, _ := b.Task("AB-1")
+	if d.Task.UpdatedBy != "system" {
+		t.Fatalf("UpdatedBy = %q", d.Task.UpdatedBy)
 	}
 }

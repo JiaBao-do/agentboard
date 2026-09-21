@@ -171,7 +171,7 @@ func (s *Server) routes() {
 		if !ok {
 			return
 		}
-		p, err := s.o.Board.CreateProject(req.Key, req.Name, req.Actor)
+		p, err := s.o.Board.CreateProject(req.Key, req.Name, headerActor(r, req.Actor))
 		s.reply(w, http.StatusCreated, p, err)
 	})
 	m.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +186,7 @@ func (s *Server) routes() {
 		if !ok {
 			return
 		}
+		req.Actor = headerActor(r, req.Actor)
 		t, err := s.o.Board.AddTask(req)
 		s.reply(w, http.StatusCreated, t, err)
 	})
@@ -198,6 +199,7 @@ func (s *Server) routes() {
 		if !ok {
 			return
 		}
+		req.Actor = headerActor(r, req.Actor)
 		t, err := s.o.Board.Update(r.PathValue("id"), req)
 		s.reply(w, http.StatusOK, t, err)
 	})
@@ -206,7 +208,7 @@ func (s *Server) routes() {
 		if !ok {
 			return
 		}
-		t, err := s.o.Board.Claim(r.PathValue("id"), req.Agent, time.Duration(req.LeaseSeconds)*time.Second)
+		t, err := s.o.Board.Claim(r.PathValue("id"), headerActor(r, req.Agent), time.Duration(req.LeaseSeconds)*time.Second)
 		s.reply(w, http.StatusOK, t, err)
 	})
 	m.HandleFunc("POST /api/tasks/{id}/release", func(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +216,7 @@ func (s *Server) routes() {
 		if !ok {
 			return
 		}
-		t, err := s.o.Board.Release(r.PathValue("id"), req.Agent)
+		t, err := s.o.Board.Release(r.PathValue("id"), headerActor(r, req.Agent))
 		s.reply(w, http.StatusOK, t, err)
 	})
 	m.HandleFunc("POST /api/tasks/{id}/done", func(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +224,7 @@ func (s *Server) routes() {
 		if !ok {
 			return
 		}
-		t, err := s.o.Board.Complete(r.PathValue("id"), req.Agent)
+		t, err := s.o.Board.Complete(r.PathValue("id"), headerActor(r, req.Agent))
 		s.reply(w, http.StatusOK, t, err)
 	})
 	m.HandleFunc("POST /api/tasks/{id}/comment", func(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +232,7 @@ func (s *Server) routes() {
 		if !ok {
 			return
 		}
-		err := s.o.Board.Comment(r.PathValue("id"), req.Actor, req.Text)
+		err := s.o.Board.Comment(r.PathValue("id"), headerActor(r, req.Actor), req.Text)
 		s.reply(w, http.StatusCreated, map[string]string{"status": "ok"}, err)
 	})
 	m.HandleFunc("GET /api/agents", func(w http.ResponseWriter, _ *http.Request) {
@@ -343,6 +345,17 @@ func (s *Server) reply(w http.ResponseWriter, okStatus int, v any, err error) {
 		err = errors.New("internal error")
 	}
 	writeJSON(w, status, apiError{Error: err.Error()})
+}
+
+// actorHeader is the header agents may use instead of a body field to say
+// who they are.
+const actorHeader = "X-Agent-Name"
+
+func headerActor(r *http.Request, own string) string {
+	if own != "" {
+		return own
+	}
+	return r.Header.Get(actorHeader)
 }
 
 func decode[T any](w http.ResponseWriter, r *http.Request) (T, bool) {

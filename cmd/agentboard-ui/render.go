@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"strings"
 	"syscall/js"
 
 	"github.com/JiaBao-do/agentboard/internal/view"
@@ -86,10 +85,15 @@ func (a *app) topbar() js.Value {
 		saveTitle = save.LastError
 	}
 	saveChip := attr(el("span", saveClass, saveLabel), "title", saveTitle)
+	me := input("me", "your name")
+	me.Set("value", a.user())
+	attr(me, "size", "10", "title", "the name your changes are recorded under")
+	act(me, "me", "")
 	return el("header", "topbar",
 		el("span", "brand", "agentboard"),
 		sel, epicSel, newBtn,
 		el("span", "spacer"),
+		el("label", "small muted", "you: ", me),
 		saveChip,
 		el("span", "live", el("span", dot), label),
 	)
@@ -191,6 +195,9 @@ func (a *app) card(t model.Task) js.Value {
 		done, total := view.Progress(view.Children(a.snap.Tasks, t.ID))
 		foot = append(foot, el("span", "muted small", fmt.Sprintf("%d/%d subtasks done", done, total)))
 	}
+	if t.UpdatedBy != "" {
+		foot = append(foot, el("span", "muted small", "by "+t.UpdatedBy))
+	}
 	b := act(el("button", "card",
 		el("div", "row", head...),
 		el("div", "title", t.Title),
@@ -226,7 +233,7 @@ func (a *app) sidebar() js.Value {
 			break
 		}
 		recent = append(recent, el("div", "agent",
-			el("div", "small", el("b", "", ev.Actor), " "+view.Describe(ev)+" "+ev.TaskID),
+			el("div", "small", a.actorTag(ev.Actor), " "+view.Describe(ev)+" "+ev.TaskID),
 			el("div", "muted small", view.RelTime(a.snap.Now, ev.Time)),
 		))
 	}
@@ -273,7 +280,7 @@ func (a *app) drawer() js.Value {
 	for i := len(a.detail.Activity) - 1; i >= 0; i-- { // newest first
 		e := a.detail.Activity[i]
 		li := el("li", "",
-			el("div", "", el("b", "", e.Actor), " "+view.Describe(e)),
+			el("div", "", a.actorTag(e.Actor), " "+view.Describe(e)),
 			el("div", "muted small", view.RelTime(a.snap.Now, e.Time)),
 		)
 		if e.Action == "comment" {
@@ -301,8 +308,8 @@ func (a *app) drawer() js.Value {
 			el("span", "muted", "Agent"), a.agentTag(t.Assignee),
 			el("span", "muted", "Lease"), el("span", "", lease),
 			el("span", "muted", "Labels"), el("span", "row", labels),
-			el("span", "muted", "Created"), el("span", "", strings.TrimSpace(t.CreatedBy+" · "+view.RelTime(a.snap.Now, t.CreatedAt))),
-			el("span", "muted", "Updated"), el("span", "", view.RelTime(a.snap.Now, t.UpdatedAt)),
+			el("span", "muted", "Created by"), el("span", "row", a.actorTag(t.CreatedBy), el("span", "muted small", view.RelTime(a.snap.Now, t.CreatedAt))),
+			el("span", "muted", "Updated by"), el("span", "row", a.actorTag(t.UpdatedBy), el("span", "muted small", view.RelTime(a.snap.Now, t.UpdatedAt))),
 		),
 		a.childrenSection(t),
 		el("h2", "muted small", "Timeline"),
@@ -353,4 +360,23 @@ func (a *app) childrenSection(t model.Task) js.Value {
 		el("h2", "muted small", fmt.Sprintf("Children (%d/%d done)", done, total)),
 		el("ul", "childlist", items),
 	)
+}
+
+// actorTag shows who did something: a live/finished dot for agents, plus
+// what the agent is working on. People ("user") and "system" get no dot.
+func (a *app) actorTag(name string) js.Value {
+	s := view.ActorOf(a.snap.Agents, name)
+	dot := el("span", "")
+	if s.Agent {
+		cls := "dot"
+		if s.Online {
+			cls = "dot on"
+		}
+		dot = el("span", cls)
+	}
+	tag := el("span", "agent-tag", dot, name)
+	if txt := view.ActorText(s); txt != "" {
+		tag.Call("appendChild", el("span", "muted small", " · "+txt))
+	}
+	return tag
 }

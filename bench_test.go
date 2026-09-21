@@ -21,10 +21,10 @@ func BenchmarkBurst(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			board.CreateProject("AB", "bench", "")
+			board.CreateProject("AB", "bench", "tester")
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := board.AddTask(agentboard.NewTask{Project: "AB", Title: "burst"}); err != nil {
+				if _, err := board.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "burst"}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -39,8 +39,8 @@ func BenchmarkBurst(b *testing.B) {
 func BenchmarkClaimRelease(b *testing.B) {
 	board, _ := agentboard.Open(agentboard.Options{})
 	defer board.Close(context.Background())
-	board.CreateProject("AB", "bench", "")
-	task, _ := board.AddTask(agentboard.NewTask{Project: "AB", Title: "t"})
+	board.CreateProject("AB", "bench", "tester")
+	task, _ := board.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "t"})
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := board.Claim(task.ID, "agent", 0); err != nil {

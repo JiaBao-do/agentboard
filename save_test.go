@@ -60,9 +60,9 @@ func openBoard(t *testing.T, o agentboard.Options) *agentboard.Board {
 func TestAsyncSavesAreCoalesced(t *testing.T) {
 	st := newSpyStore()
 	b := openBoard(t, agentboard.Options{Store: st, SaveDebounce: time.Hour, SaveMaxLatency: 2 * time.Hour})
-	b.CreateProject("AB", "n", "")
+	b.CreateProject("AB", "n", "tester")
 	for i := range 200 {
-		if _, err := b.AddTask(agentboard.NewTask{Project: "AB", Title: fmt.Sprint("t", i)}); err != nil {
+		if _, err := b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: fmt.Sprint("t", i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -91,7 +91,7 @@ func TestMaxLatencyCapsContinuousLoad(t *testing.T) {
 	// The debounce alone would never fire: a change arrives every 5ms, far
 	// more often than the 200ms window. Only the cap can force a save.
 	b := openBoard(t, agentboard.Options{Store: st, SaveDebounce: 200 * time.Millisecond, SaveMaxLatency: 400 * time.Millisecond})
-	b.CreateProject("AB", "n", "")
+	b.CreateProject("AB", "n", "tester")
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -104,7 +104,7 @@ func TestMaxLatencyCapsContinuousLoad(t *testing.T) {
 			case <-stop:
 				return
 			case <-tick.C:
-				b.AddTask(agentboard.NewTask{Project: "AB", Title: "load"})
+				b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "load"})
 			}
 		}
 	}()
@@ -123,8 +123,8 @@ func TestCloseFlushesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.CreateProject("AB", "n", "")
-	b.AddTask(agentboard.NewTask{Project: "AB", Title: "kept"})
+	b.CreateProject("AB", "n", "tester")
+	b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "kept"})
 	if err := b.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestCloseFlushesEverything(t *testing.T) {
 		t.Fatalf("reloaded tasks = %+v", got)
 	}
 	// Changes after Close are saved inline instead of being lost.
-	if _, err := b.AddTask(agentboard.NewTask{Project: "AB", Title: "late"}); err != nil {
+	if _, err := b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "late"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := openBoard(t, agentboard.Options{Store: st}).Tasks(agentboard.Filter{}); len(got) != 2 {
@@ -148,7 +148,7 @@ func TestSaveFailureIsRetriedAndSurfaced(t *testing.T) {
 	st := newSpyStore()
 	st.failN.Store(2)
 	b := openBoard(t, agentboard.Options{Store: st, SaveDebounce: time.Millisecond, SaveMaxLatency: 5 * time.Millisecond})
-	b.CreateProject("AB", "n", "")
+	b.CreateProject("AB", "n", "tester")
 	// The first two attempts fail; the writer keeps the change pending and
 	// retries with backoff until one succeeds.
 	select {
@@ -169,7 +169,7 @@ func TestSaveFailureIsVisibleWhileFailing(t *testing.T) {
 	st := newSpyStore()
 	st.failN.Store(1 << 30)
 	b := openBoard(t, agentboard.Options{Store: st, SaveDebounce: time.Millisecond, SaveMaxLatency: 5 * time.Millisecond})
-	b.CreateProject("AB", "n", "")
+	b.CreateProject("AB", "n", "tester")
 	err := b.Flush(context.Background())
 	if err == nil {
 		t.Fatal("Flush must return the save error")
@@ -205,7 +205,7 @@ func TestBoardLeavesNoGoroutines(t *testing.T) {
 			t.Fatal(err)
 		}
 		ch, cancel := b.Subscribe()
-		b.CreateProject("AB", "n", "")
+		b.CreateProject("AB", "n", "tester")
 		<-ch
 		cancel()
 		if err := b.Close(context.Background()); err != nil {
@@ -221,7 +221,7 @@ func TestBoardLeavesNoGoroutines(t *testing.T) {
 func TestSnapshotsAreConsistentUnderConcurrentMutation(t *testing.T) {
 	st := newSpyStore()
 	b := openBoard(t, agentboard.Options{Store: st, SaveDebounce: time.Millisecond, SaveMaxLatency: 5 * time.Millisecond})
-	b.CreateProject("AB", "n", "")
+	b.CreateProject("AB", "n", "tester")
 	var wg sync.WaitGroup
 	for w := range 8 {
 		wg.Add(1)
@@ -229,7 +229,7 @@ func TestSnapshotsAreConsistentUnderConcurrentMutation(t *testing.T) {
 			defer wg.Done()
 			agent := fmt.Sprint("agent", w)
 			for i := range 40 {
-				task, err := b.AddTask(agentboard.NewTask{Project: "AB", Title: fmt.Sprint("t", w, "-", i)})
+				task, err := b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: fmt.Sprint("t", w, "-", i)})
 				if err != nil {
 					t.Error(err)
 					return
@@ -280,9 +280,9 @@ func TestSnapshotsAreConsistentUnderConcurrentMutation(t *testing.T) {
 func TestSyncModeSavesInline(t *testing.T) {
 	st := newSpyStore()
 	b := openBoard(t, agentboard.Options{Store: st, SaveMode: agentboard.SaveSync})
-	b.CreateProject("AB", "n", "")
-	b.AddTask(agentboard.NewTask{Project: "AB", Title: "a"})
-	b.AddTask(agentboard.NewTask{Project: "AB", Title: "b"})
+	b.CreateProject("AB", "n", "tester")
+	b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "a"})
+	b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "b"})
 	if n := st.saves.Load(); n != 3 {
 		t.Fatalf("sync mode saved %d times for 3 changes", n)
 	}
@@ -295,7 +295,7 @@ func TestSyncModeSavesInline(t *testing.T) {
 	}
 	// A failing disk is reported to the caller in sync mode.
 	st.failN.Store(1)
-	if _, err := b.AddTask(agentboard.NewTask{Project: "AB", Title: "c"}); err == nil {
+	if _, err := b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "c"}); err == nil {
 		t.Fatal("sync mode must return the save error")
 	}
 	if s := b.SaveStatus(); !s.Dirty || s.LastError == "" {
@@ -315,8 +315,8 @@ func TestCrashLosesAtMostTheWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b.CreateProject("AB", "n", "")
-	b.AddTask(agentboard.NewTask{Project: "AB", Title: "unsaved"})
+	b.CreateProject("AB", "n", "tester")
+	b.AddTask(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "unsaved"})
 	// "kill -9": nothing flushes. A board opened on the same store sees only
 	// what already reached it, which is the documented loss window.
 	crashed := openBoard(t, agentboard.Options{Store: st})
@@ -337,7 +337,7 @@ func TestSaveEventsReachSubscribers(t *testing.T) {
 	b := openBoard(t, agentboard.Options{Store: st, SaveDebounce: time.Millisecond, SaveMaxLatency: 5 * time.Millisecond})
 	ch, cancel := b.Subscribe()
 	defer cancel()
-	b.CreateProject("AB", "n", "")
+	b.CreateProject("AB", "n", "tester")
 	deadline := time.After(10 * time.Second)
 	for {
 		select {

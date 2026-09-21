@@ -25,7 +25,10 @@ func (e *APIError) Error() string { return fmt.Sprintf("agentboard: %d %s", e.St
 type Client struct {
 	BaseURL string
 	Token   string
-	HTTP    *http.Client
+	// Agent is sent as X-Agent-Name so writes are attributed to it when the
+	// request itself does not name an actor.
+	Agent string
+	HTTP  *http.Client
 }
 
 // NewClient returns a Client for the server at baseURL, such as
@@ -48,6 +51,9 @@ func (c *Client) do(ctx context.Context, method, p string, in, out any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
+	if c.Agent != "" {
+		req.Header.Set(actorHeader, c.Agent)
+	}
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

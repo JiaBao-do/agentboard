@@ -147,7 +147,7 @@ func TestClientFlowEndToEnd(t *testing.T) {
 
 func TestEnsureMakesSeedingIdempotent(t *testing.T) {
 	ts, b := testServer(t)
-	env := envOf(map[string]string{"AGENTBOARD_URL": ts.URL})
+	env := envOf(map[string]string{"AGENTBOARD_URL": ts.URL, "AGENTBOARD_AGENT": "seeder"})
 	mustRun := func(args ...string) string {
 		code, out, errw := run(t, env, args...)
 		if code != 0 {
@@ -185,8 +185,8 @@ func TestEnsureMakesSeedingIdempotent(t *testing.T) {
 func TestCommandErrors(t *testing.T) {
 	ts, _ := testServer(t)
 	env := envOf(map[string]string{"AGENTBOARD_URL": ts.URL})
-	run(t, env, "project", "add", "AB", "n")
-	run(t, env, "task", "add", "-p", "AB", "one")
+	run(t, env, "project", "add", "AB", "n", "-agent", "setup")
+	run(t, env, "task", "add", "-p", "AB", "one", "-agent", "setup")
 	tests := []struct {
 		name string
 		args []string
@@ -202,9 +202,13 @@ func TestCommandErrors(t *testing.T) {
 		{"comment needs text", []string{"task", "comment", "AB-1"}, 2, "task comment ID TEXT"},
 		{"bad meta", []string{"agent", "heartbeat", "-agent", "a", "-meta", "novalue"}, 2, "key=value"},
 		{"unknown task", []string{"task", "show", "AB-99"}, 1, "404"},
+		{"anonymous add is refused", []string{"task", "add", "-p", "AB", "x"}, 2, "agent name"},
+		{"anonymous comment is refused", []string{"task", "comment", "AB-1", "x"}, 2, "agent name"},
+		{"anonymous update is refused", []string{"task", "update", "AB-1", "-status", "done"}, 2, "agent name"},
+		{"anonymous project is refused", []string{"project", "add", "ZZ", "n"}, 2, "agent name"},
 		{"claim unknown task", []string{"task", "claim", "-agent", "a", "AB-99"}, 1, "404"},
-		{"bad status", []string{"task", "update", "AB-1", "-status", "weird"}, 1, "400"},
-		{"unknown project", []string{"task", "add", "-p", "NOPE", "x"}, 1, "404"},
+		{"bad status", []string{"task", "update", "AB-1", "-status", "weird", "-agent", "a"}, 1, "400"},
+		{"unknown project", []string{"task", "add", "-p", "NOPE", "x", "-agent", "a"}, 1, "404"},
 		{"unreachable server", []string{"status", "-url", "http://127.0.0.1:1"}, 1, "agentboard:"},
 	}
 	for _, tc := range tests {
@@ -226,7 +230,7 @@ func TestCommandErrors(t *testing.T) {
 
 func TestUpdateOnlySendsGivenFlags(t *testing.T) {
 	ts, b := testServer(t)
-	env := envOf(map[string]string{"AGENTBOARD_URL": ts.URL})
+	env := envOf(map[string]string{"AGENTBOARD_URL": ts.URL, "AGENTBOARD_AGENT": "editor"})
 	run(t, env, "project", "add", "AB", "n")
 	run(t, env, "task", "add", "-p", "AB", "-priority", "high", "-labels", "keep", "-desc", "orig", "title")
 	if code, _, errw := run(t, env, "task", "update", "AB-1", "-title", "renamed"); code != 0 {
@@ -345,7 +349,7 @@ func startServe(t *testing.T, dir string, extra ...string) (base string, stop fu
 func TestServeStartsPersistsAndStops(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "data")
 	base, stop := startServe(t, dir)
-	env := envOf(map[string]string{"AGENTBOARD_URL": base})
+	env := envOf(map[string]string{"AGENTBOARD_URL": base, "AGENTBOARD_AGENT": "tester"})
 
 	if resp, err := http.Get(base + "/healthz"); err != nil || resp.StatusCode != 200 {
 		t.Fatalf("healthz: %v", err)
@@ -407,7 +411,7 @@ func TestServeSaveModeSyncWritesImmediately(t *testing.T) {
 	dir := t.TempDir()
 	base, stop := startServe(t, dir, "-save-mode", "sync")
 	defer stop()
-	env := envOf(map[string]string{"AGENTBOARD_URL": base})
+	env := envOf(map[string]string{"AGENTBOARD_URL": base, "AGENTBOARD_AGENT": "tester"})
 	run(t, env, "project", "add", "AB", "n")
 	// No wait, no flush: sync mode has already written the file.
 	data, err := os.ReadFile(filepath.Join(dir, "board.json"))

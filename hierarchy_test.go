@@ -20,9 +20,9 @@ func TestHierarchy(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		must(agentboard.NewTask{Project: "AB", Type: agentboard.KindEpic, Title: "epic"})                   // AB-1
-		must(agentboard.NewTask{Project: "AB", Type: agentboard.KindStory, Title: "story", Parent: "AB-1"}) // AB-2
-		must(agentboard.NewTask{Project: "AB", Title: "task", Parent: "AB-2"})                              // AB-3
+		must(agentboard.NewTask{Actor: "tester", Project: "AB", Type: agentboard.KindEpic, Title: "epic"})                   // AB-1
+		must(agentboard.NewTask{Actor: "tester", Project: "AB", Type: agentboard.KindStory, Title: "story", Parent: "AB-1"}) // AB-2
+		must(agentboard.NewTask{Actor: "tester", Project: "AB", Title: "task", Parent: "AB-2"})                              // AB-3
 		return b
 	}
 	tests := []struct {
@@ -30,15 +30,15 @@ func TestHierarchy(t *testing.T) {
 		in      agentboard.NewTask
 		wantErr error
 	}{
-		{"epic without parent", agentboard.NewTask{Project: "AB", Type: agentboard.KindEpic, Title: "e"}, nil},
-		{"story under epic", agentboard.NewTask{Project: "AB", Type: agentboard.KindStory, Title: "s", Parent: "AB-1"}, nil},
-		{"task under story", agentboard.NewTask{Project: "AB", Title: "t", Parent: "AB-2"}, nil},
-		{"task directly under epic", agentboard.NewTask{Project: "AB", Title: "t", Parent: "AB-1"}, nil},
-		{"epic under story", agentboard.NewTask{Project: "AB", Type: agentboard.KindEpic, Title: "e", Parent: "AB-2"}, agentboard.ErrInvalid},
-		{"story under story", agentboard.NewTask{Project: "AB", Type: agentboard.KindStory, Title: "s", Parent: "AB-2"}, agentboard.ErrInvalid},
-		{"task under task", agentboard.NewTask{Project: "AB", Title: "t", Parent: "AB-3"}, agentboard.ErrInvalid},
-		{"unknown parent", agentboard.NewTask{Project: "AB", Title: "t", Parent: "AB-99"}, agentboard.ErrNotFound},
-		{"unknown type", agentboard.NewTask{Project: "AB", Type: "bug", Title: "t"}, agentboard.ErrInvalid},
+		{"epic without parent", agentboard.NewTask{Actor: "tester", Project: "AB", Type: agentboard.KindEpic, Title: "e"}, nil},
+		{"story under epic", agentboard.NewTask{Actor: "tester", Project: "AB", Type: agentboard.KindStory, Title: "s", Parent: "AB-1"}, nil},
+		{"task under story", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "t", Parent: "AB-2"}, nil},
+		{"task directly under epic", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "t", Parent: "AB-1"}, nil},
+		{"epic under story", agentboard.NewTask{Actor: "tester", Project: "AB", Type: agentboard.KindEpic, Title: "e", Parent: "AB-2"}, agentboard.ErrInvalid},
+		{"story under story", agentboard.NewTask{Actor: "tester", Project: "AB", Type: agentboard.KindStory, Title: "s", Parent: "AB-2"}, agentboard.ErrInvalid},
+		{"task under task", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "t", Parent: "AB-3"}, agentboard.ErrInvalid},
+		{"unknown parent", agentboard.NewTask{Actor: "tester", Project: "AB", Title: "t", Parent: "AB-99"}, agentboard.ErrNotFound},
+		{"unknown type", agentboard.NewTask{Actor: "tester", Project: "AB", Type: "bug", Title: "t"}, agentboard.ErrInvalid},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -51,8 +51,8 @@ func TestHierarchy(t *testing.T) {
 	}
 	t.Run("parent must be in the same project", func(t *testing.T) {
 		b := newTree(t)
-		b.CreateProject("ZZ", "Other", "")
-		_, err := b.AddTask(agentboard.NewTask{Project: "ZZ", Title: "t", Parent: "AB-2"})
+		b.CreateProject("ZZ", "Other", "tester")
+		_, err := b.AddTask(agentboard.NewTask{Actor: "tester", Project: "ZZ", Title: "t", Parent: "AB-2"})
 		if !errors.Is(err, agentboard.ErrInvalid) {
 			t.Fatalf("err = %v", err)
 		}
@@ -60,20 +60,20 @@ func TestHierarchy(t *testing.T) {
 	t.Run("reparent and detach", func(t *testing.T) {
 		b := newTree(t)
 		empty, epic := "", "AB-1"
-		got, err := b.Update("AB-3", agentboard.Patch{Parent: &empty})
+		got, err := b.Update("AB-3", agentboard.Patch{Actor: "tester", Parent: &empty})
 		if err != nil || got.Parent != "" {
 			t.Fatalf("detach: %+v %v", got, err)
 		}
-		got, err = b.Update("AB-3", agentboard.Patch{Parent: &epic})
+		got, err = b.Update("AB-3", agentboard.Patch{Actor: "tester", Parent: &epic})
 		if err != nil || got.Parent != "AB-1" {
 			t.Fatalf("reparent: %+v %v", got, err)
 		}
 		self := "AB-3"
-		if _, err := b.Update("AB-3", agentboard.Patch{Parent: &self}); !errors.Is(err, agentboard.ErrInvalid) {
+		if _, err := b.Update("AB-3", agentboard.Patch{Actor: "tester", Parent: &self}); !errors.Is(err, agentboard.ErrInvalid) {
 			t.Fatalf("self parent: %v", err)
 		}
 		bad := "AB-3"
-		if _, err := b.Update("AB-1", agentboard.Patch{Parent: &bad}); !errors.Is(err, agentboard.ErrInvalid) {
+		if _, err := b.Update("AB-1", agentboard.Patch{Actor: "tester", Parent: &bad}); !errors.Is(err, agentboard.ErrInvalid) {
 			t.Fatalf("epic under task: %v", err)
 		}
 	})
