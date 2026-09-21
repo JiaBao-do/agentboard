@@ -1,4 +1,5 @@
 #!/bin/sh
+sh "$(dirname "$0")/leakcheck.sh" || exit 1
 # pre-push: verify the exact commit being pushed, from a clean checkout, so a
 # dirty working tree can never mask a broken commit. Enable it once per clone:
 #

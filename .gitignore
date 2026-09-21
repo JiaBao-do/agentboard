@@ -22,3 +22,8 @@ coverage.html
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local run notes may contain machine paths: never commit
+/RUNNING.md
+/STATUS.md
+/.agentboard/
