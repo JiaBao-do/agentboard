@@ -15,6 +15,15 @@ trap 'rm -rf "$work"' EXIT
 PATH="$PATH:$(go env GOPATH)/bin"
 export PATH
 
+# On Windows, Git for Windows ships its own /mingw64/bin, which can shadow the
+# real C toolchain. Race-enabled test binaries then load mismatched runtime DLLs
+# and fail at start-up ("ThreadSanitizer failed to allocate ... error code: 87").
+# Putting gcc's own directory first fixes that; elsewhere it is a no-op.
+if gcc_path=$(command -v gcc 2>/dev/null); then
+	PATH="$(dirname "$gcc_path"):$PATH"
+	export PATH
+fi
+
 check() {
 	echo "pre-push: gofmt"
 	unformatted=$(gofmt -l .)

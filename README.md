@@ -1,4 +1,4 @@
-# agentboard
+﻿# agentboard
 
 A small, self-hosted, Jira-style board for people who run AI agents: see every task's status and
 **which agent is working on it**. One static Go binary, no dependencies, web UI written in Go and
@@ -11,6 +11,10 @@ compiled to WebAssembly.
 Agents (or scripts, or people) claim tasks with a lease and send heartbeats. If an agent goes quiet its
 lease expires and the task returns to the queue. The board shows columns, agent presence and a timeline
 of who did what.
+
+## Requirements
+
+Go 1.27 or newer to build; the released binaries need nothing.
 
 ## Status
 
