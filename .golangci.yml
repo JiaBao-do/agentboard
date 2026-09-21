@@ -28,9 +28,14 @@ linters:
     presets:
       - std-error-handling
     rules:
+      # Tests favour readability: bare status numbers, plain http.Get, and no
+      # ceremony around closing bodies of throwaway servers.
       - path: _test\.go
         linters:
           - errcheck
+          - noctx
+          - bodyclose
+          - usestdlibvars
 
 formatters:
   enable:
