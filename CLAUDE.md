@@ -42,7 +42,7 @@ Portability guarantees:
 5. Data lives in one directory: `board.json` is a versioned, CRC-32C checksummed, deflated container (`docs/DATA_FORMAT.md`);
    damage is detected, a newer version is refused (never misread), a corrupt file is never overwritten. Legacy JSON migrates
    once (kept as `.bak`). `export`/`import` (plain or gzip JSON) move a board between machines.
-6. Config is flags and env vars, plus an optional plain-JSON config file; no hidden state outside the data dir.
+6. Config is flags and environment variables only (a JSON config file is on the roadmap); no hidden state outside the data dir.
    Default bind is 127.0.0.1.
 Runtime guarantees:
 7. One writer per data dir (`agentboard.lock` with PID/host/addr; stale owners are taken over, foreign ones never); writes are
@@ -55,3 +55,4 @@ Runtime guarantees:
 - Drag and drop between columns, saved filters.
 - More export formats (CSV), import from other trackers.
 - Per-project WIP limits and lease policies.
+- Optional plain-JSON config file; import through the API while the server runs; a byte-size archive trigger.
