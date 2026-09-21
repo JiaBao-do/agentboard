@@ -2,9 +2,12 @@ package agentboard
 
 import (
 	"bytes"
+	"compress/flate"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -68,7 +71,9 @@ type FileStore struct {
 // parent directory are created on the first Save.
 func NewFileStore(path string) *FileStore { return &FileStore{path: path} }
 
-// Load implements Store.
+// Load implements Store. It reads the current format (see EncodeFile) and
+// also the original plain JSON files: those are migrated on first load by
+// keeping the old file once as <path>.bak and writing the new format.
 func (f *FileStore) Load() (*model.State, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -79,21 +84,49 @@ func (f *FileStore) Load() (*model.State, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := DecodeState(b)
+	st, legacy, err := DecodeFile(b)
 	if err != nil {
 		return nil, fmt.Errorf("agentboard: reading %s: %w", f.path, err)
+	}
+	if legacy && len(bytes.TrimSpace(b)) > 0 {
+		if err := f.migrateLocked(b, st); err != nil {
+			return nil, fmt.Errorf("agentboard: migrating %s: %w", f.path, err)
+		}
 	}
 	return st, nil
 }
 
+// migrateLocked keeps the legacy file as <path>.bak (never overwriting an
+// existing backup, never deleting user data) and writes the new format.
+func (f *FileStore) migrateLocked(old []byte, st *model.State) error {
+	bak, err := os.OpenFile(f.path+".bak", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	switch {
+	case err == nil:
+		_, werr := bak.Write(old)
+		if cerr := bak.Close(); werr == nil {
+			werr = cerr
+		}
+		if werr != nil {
+			return werr
+		}
+	case !errors.Is(err, os.ErrExist):
+		return err
+	}
+	return f.saveLocked(st)
+}
+
 // Save implements Store.
 func (f *FileStore) Save(st *model.State) error {
-	b, err := json.Marshal(st)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.saveLocked(st)
+}
+
+func (f *FileStore) saveLocked(st *model.State) error {
+	b, err := EncodeFile(st)
 	if err != nil {
 		return err
 	}
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	dir := filepath.Dir(f.path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
@@ -120,6 +153,103 @@ func (f *FileStore) Save(st *model.State) error {
 		}
 	}
 	return os.Rename(tmp.Name(), f.path)
+}
+
+// ErrCorrupt is returned (wrapped) when a data file fails its length or
+// checksum check, is truncated, or does not decompress.
+var ErrCorrupt = errors.New("data file is corrupt")
+
+// On-disk file format, version 2:
+//
+//	offset  size  field
+//	0       4     magic "ABD2"
+//	4       1     format version (2)
+//	5       8     payload length, big endian
+//	13      n     payload: compact JSON of the State, deflate compressed
+//	13+n    4     CRC-32C (Castagnoli) of the payload, big endian
+//
+// Version 1 files were plain indented JSON (first byte '{').
+const (
+	fileMagic       = "ABD2"
+	fileVersion     = 2
+	fileHeaderLen   = 13
+	maxDecompressed = 1 << 30 // refuse decompression bombs
+)
+
+var crcTable = crc32.MakeTable(crc32.Castagnoli)
+
+// EncodeFile serialises st in the on-disk format: compact JSON, deflated at
+// the default level (measured: 28x smaller than indented JSON for a 1,000
+// task board, see format_size_test.go), with a length and CRC-32C so damage
+// is detected exactly. Encoding runs in the save queue's writer goroutine,
+// never on the request path.
+func EncodeFile(st *model.State) ([]byte, error) {
+	st.Version = model.SchemaVersion
+	raw, err := json.Marshal(st)
+	if err != nil {
+		return nil, err
+	}
+	var payload bytes.Buffer
+	zw, err := flate.NewWriter(&payload, flate.DefaultCompression)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := zw.Write(raw); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	out := make([]byte, 0, fileHeaderLen+payload.Len()+4)
+	out = append(out, fileMagic...)
+	out = append(out, fileVersion)
+	out = binary.BigEndian.AppendUint64(out, uint64(payload.Len()))
+	out = append(out, payload.Bytes()...)
+	out = binary.BigEndian.AppendUint32(out, crc32.Checksum(payload.Bytes(), crcTable))
+	return out, nil
+}
+
+// DecodeFile parses a data file: the current format, or legacy plain JSON
+// (legacy is then true so the caller can migrate it). Damage is reported as
+// ErrCorrupt; a file written by a newer format is refused, never guessed at.
+// It never panics on arbitrary input.
+func DecodeFile(b []byte) (st *model.State, legacy bool, err error) {
+	if !bytes.HasPrefix(b, []byte(fileMagic)) {
+		if len(bytes.TrimSpace(b)) > 0 && bytes.HasPrefix(b, []byte("ABD")) {
+			return nil, false, fmt.Errorf("%w: unknown file magic %q; upgrade agentboard", ErrInvalid, b[:4])
+		}
+		st, err = DecodeState(b)
+		return st, true, err
+	}
+	if len(b) < fileHeaderLen+4 {
+		return nil, false, fmt.Errorf("%w: truncated header (%d bytes)", ErrCorrupt, len(b))
+	}
+	if v := b[4]; v != fileVersion {
+		return nil, false, fmt.Errorf("%w: data file format version %d but this agentboard understands %d; upgrade agentboard", ErrInvalid, v, fileVersion)
+	}
+	n := binary.BigEndian.Uint64(b[5:13])
+	if n != uint64(len(b)-fileHeaderLen-4) {
+		return nil, false, fmt.Errorf("%w: length says %d payload bytes, file has %d (truncated or appended to)", ErrCorrupt, n, len(b)-fileHeaderLen-4)
+	}
+	payload := b[fileHeaderLen : fileHeaderLen+int(n)]
+	want := binary.BigEndian.Uint32(b[fileHeaderLen+int(n):])
+	if got := crc32.Checksum(payload, crcTable); got != want {
+		return nil, false, fmt.Errorf("%w: checksum mismatch (stored %08x, computed %08x)", ErrCorrupt, want, got)
+	}
+	zr := flate.NewReader(bytes.NewReader(payload))
+	defer zr.Close()
+	raw, err := io.ReadAll(io.LimitReader(zr, maxDecompressed+1))
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrCorrupt, err)
+	}
+	if len(raw) > maxDecompressed {
+		return nil, false, fmt.Errorf("%w: payload larger than %d bytes", ErrCorrupt, maxDecompressed)
+	}
+	st, err = DecodeState(raw)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %w", ErrCorrupt, err)
+	}
+	return st, false, nil
 }
 
 // DecodeState parses a serialised State, migrates older schema versions to

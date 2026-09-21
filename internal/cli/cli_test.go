@@ -414,8 +414,8 @@ func TestServeSaveModeSyncWritesImmediately(t *testing.T) {
 	env := envOf(map[string]string{"AGENTBOARD_URL": base, "AGENTBOARD_AGENT": "tester"})
 	run(t, env, "project", "add", "AB", "n")
 	// No wait, no flush: sync mode has already written the file.
-	data, err := os.ReadFile(filepath.Join(dir, "board.json"))
-	if err != nil || !strings.Contains(string(data), `"AB"`) {
-		t.Fatalf("sync mode did not write inline: %v %q", err, data)
+	st, err := agentboard.NewFileStore(filepath.Join(dir, "board.json")).Load()
+	if err != nil || st.Projects["AB"] == nil {
+		t.Fatalf("sync mode did not write inline: %v", err)
 	}
 }
