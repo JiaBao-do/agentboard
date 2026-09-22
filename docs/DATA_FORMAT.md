@@ -58,3 +58,9 @@ Version 1 was plain indented JSON. On first load such a file is kept once, byte 
 The payload is the `State` document: `version`, `projects`, `tasks`, `agents`, `activity`, `next_activity_id`.
 `agentboard export` writes exactly this document as indented JSON. Field names are stable; renaming one needs a schema
 version bump and a migration step in `DecodeState`.
+
+`DecodeState` (used by both `DecodeFile`'s legacy path and `import`) refuses any input whose top level names none of
+these fields, rather than accepting it as a valid but empty board: a file that is syntactically valid JSON but not
+actually a board export (say `{"hello":"world"}`) decodes to a zero-valued `State` with nothing internally
+inconsistent about it, so without this check it would be silently imported as an empty board. A genuine legacy file
+that predates the `version` field still names `projects` and `tasks`, so it is unaffected.

@@ -252,13 +252,48 @@ func DecodeFile(b []byte) (st *model.State, legacy bool, err error) {
 	return st, false, nil
 }
 
+// stateKeys are the top-level JSON fields of a genuine State document (see
+// model.State's json tags). Every one of them is written unconditionally by
+// EncodeState/EncodeFile (none is `omitempty`), and every real legacy file
+// predating the "version" field still named at least "projects" and "tasks"
+// (see the fixtures in hierarchy_test.go). So a real export or legacy board
+// file always has at least one of these keys at the top level.
+var stateKeys = []string{"version", "projects", "tasks", "agents", "activity", "next_activity_id", "archived_through"}
+
+// looksLikeBoard reports (as a wrapped ErrInvalid) when b's top-level JSON
+// object has none of stateKeys. That is the real gap behind a silent-wipe
+// bug: a syntactically valid but unrelated JSON object (say {"hello":
+// "world"}) unmarshals into a zero-valued State with zero tasks and zero
+// projects, and ValidateState only checks internal consistency, so it finds
+// nothing wrong with an empty board and lets it through. Checking for board
+// shape first catches "not actually a board" before it is ever mistaken for
+// "a genuine empty board".
+func looksLikeBoard(b []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	for _, key := range stateKeys {
+		if _, ok := raw[key]; ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: this does not look like an agentboard export or board file (no %v field present); "+
+		"import wants the JSON produced by \"agentboard export\" or a real board.json", ErrInvalid, stateKeys)
+}
+
 // DecodeState parses a serialised State, migrates older schema versions to
 // the current one and validates the result. It rejects data written by a
-// newer schema version rather than guessing at it. An empty input yields an
-// empty State.
+// newer schema version rather than guessing at it, and rejects JSON that
+// does not have the shape of a board at all (see looksLikeBoard) rather than
+// silently treating it as an empty one. An empty input yields an empty
+// State.
 func DecodeState(b []byte) (*model.State, error) {
 	if len(bytes.TrimSpace(b)) == 0 {
 		return model.NewState(), nil
+	}
+	if err := looksLikeBoard(b); err != nil {
+		return nil, err
 	}
 	st := &model.State{} // Version 0 unless the file says otherwise
 	if err := json.Unmarshal(b, st); err != nil {

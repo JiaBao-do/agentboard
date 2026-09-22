@@ -103,8 +103,11 @@ set `proxy_buffering off` for `/api/events` (the server already sends `X-Accel-B
 
 `export` writes the whole board as readable, versioned JSON (`-gzip` optional), from the running server or, with `-data`,
 straight from a stopped data directory. `import` **replaces** the board in a data directory (server must be stopped);
-the previous file is kept as `board.json.before-import-<time>`. Input is validated first: a broken file is refused before
-anything is touched. [`TestExportImportRoundTripAcrossMachines`]
+the previous file is kept as `board.json.before-import-<time>`. Input is validated first: a broken file, or a file that
+does not have the shape of a board at all, is refused before anything is touched. Syntactically valid but unrelated
+JSON (say `{"hello":"world"}`) is **not** silently treated as an empty board just because it happens to decode into a
+zero-valued, internally-consistent `State` — it is refused with "does not look like an agentboard export".
+[`TestExportImportRoundTripAcrossMachines`]
 
 ## 9. The WebAssembly UI and the Go version
 

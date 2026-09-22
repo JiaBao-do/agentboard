@@ -83,7 +83,10 @@ func TestOfflineCommandsRefuseWhileServerRuns(t *testing.T) {
 	defer stop()
 	seedBoard(t, base)
 	out := filepath.Join(t.TempDir(), "x.json")
-	os.WriteFile(out, []byte(`{}`), 0o600)
+	// A minimal but genuine board shape: the lock check must fire before
+	// content is even inspected, not because the content happens to be
+	// invalid (see TestImportRejectsNonBoardJSON for that case).
+	os.WriteFile(out, []byte(`{"tasks":{}}`), 0o600)
 	for _, args := range [][]string{
 		{"export", "-data", dir},
 		{"dump", "-data", dir},
@@ -174,6 +177,54 @@ func TestExportImportRoundTripAcrossMachines(t *testing.T) {
 		}
 		if _, err := os.Stat(filepath.Join(dst, "board.json")); !os.IsNotExist(err) {
 			t.Fatal("a rejected import wrote a data file")
+		}
+	})
+	t.Run("arbitrary JSON does not silently replace a populated board", func(t *testing.T) {
+		// Regression test for the verifier's finding: `agentboard import` of
+		// syntactically valid but unrelated JSON (e.g. {"hello":"world"})
+		// used to decode into a zero-valued, internally-consistent (because
+		// empty) State and silently wipe the board with exit 0.
+		dst := t.TempDir()
+		if err := agentboard.NewFileStore(filepath.Join(dst, "board.json")).Save(want); err != nil {
+			t.Fatal(err)
+		}
+		bad := filepath.Join(tmp, "hello.json")
+		os.WriteFile(bad, []byte(`{"hello":"world"}`), 0o600)
+		code, out, errw := run(t, noEnv, "import", bad, "-data", dst)
+		if code != 1 || !strings.Contains(errw, "not a valid board") || !strings.Contains(errw, "does not look like an agentboard export") {
+			t.Fatalf("import of unrelated JSON: code=%d out=%q err=%q", code, out, errw)
+		}
+		got, err := agentboard.NewFileStore(filepath.Join(dst, "board.json")).Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Tasks) != len(want.Tasks) || len(got.Projects) != len(want.Projects) {
+			t.Fatalf("board was replaced: tasks=%d (want %d) projects=%d (want %d)", len(got.Tasks), len(want.Tasks), len(got.Projects), len(want.Projects))
+		}
+		if kept, _ := filepath.Glob(filepath.Join(dst, "board.json.before-import-*")); len(kept) != 0 {
+			t.Fatalf("a refused import must not touch anything, including the backup: %v", kept)
+		}
+	})
+	t.Run("a genuine legacy pre-versioning export still migrates", func(t *testing.T) {
+		// Before the "version" field existed, a board.json was exactly the
+		// State document (see docs/DATA_FORMAT.md "Legacy files") minus that
+		// field: named "projects"/"tasks"/"agents" collections, no "version".
+		dst := t.TempDir()
+		legacy := `{"projects":{"AB":{"key":"AB","name":"Legacy","next_seq":1}},` +
+			`"tasks":{"AB-1":{"id":"AB-1","project":"AB","title":"old task","status":"todo","priority":"low"}},` +
+			`"agents":{}}`
+		src := filepath.Join(tmp, "legacy.json")
+		os.WriteFile(src, []byte(legacy), 0o600)
+		code, out, errw := run(t, noEnv, "import", src, "-data", dst)
+		if code != 0 || !strings.Contains(out, "imported 1 tasks") {
+			t.Fatalf("legacy import: %d %q %q", code, out, errw)
+		}
+		got, err := agentboard.NewFileStore(filepath.Join(dst, "board.json")).Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Tasks["AB-1"].Title != "old task" || got.Tasks["AB-1"].Type != agentboard.KindTask {
+			t.Fatalf("legacy task not migrated: %+v", got.Tasks["AB-1"])
 		}
 	})
 	t.Run("usage", func(t *testing.T) {
