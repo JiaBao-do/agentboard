@@ -436,13 +436,17 @@ func (a *app) actorTag(name string) js.Value {
 	return tag
 }
 
-// stoppedView replaces the board once the server has been stopped.
+// stoppedView replaces the board once the server has been stopped. It does
+// not guess a restart command: a static page served by the now-stopped
+// server has no reliable way to know whether this instance was started as
+// a raw binary, "go run .", a pm2 process or a systemd service, so any
+// single hardcoded command line would be right for some deployments and
+// wrong (unusable if copy-pasted) for others.
 func (a *app) stoppedView() js.Value {
-	cmd := view.RestartCommand(global.Get("location").Get("host").String())
 	return el("div", "panel",
 		el("h2", "", "Server stopped"),
-		el("p", "muted", "Your data was saved. Start the server again from a terminal, then reload this page:"),
-		el("pre", "cmd", cmd),
-		attr(act(el("button", "primary", "Copy command"), "copy-restart", ""), "type", "button"),
+		el("p", "muted", "Your data was saved. Start it again the way you originally started it "+
+			"(see the README's \"Install and run\" section, or your process manager's config if you used one), "+
+			"then reload this page."),
 	)
 }

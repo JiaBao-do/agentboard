@@ -217,8 +217,6 @@ func (a *app) dispatch(typ string, ev js.Value) {
 		if global.Call("confirm", msg).Bool() {
 			a.stopServer()
 		}
-	case "click copy-restart":
-		global.Get("navigator").Get("clipboard").Call("writeText", view.RestartCommand(global.Get("location").Get("host").String()))
 	case "click new":
 		a.showNew = !a.showNew
 		a.render()

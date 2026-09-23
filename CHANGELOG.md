@@ -5,6 +5,13 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
 
 ## [Unreleased]
 
+### Fixed
+- The "Server stopped" screen no longer shows a fabricated restart command. It previously guessed
+  `agentboard serve -addr <host>`, which is wrong (and unusable if copy-pasted) for anything not started as that
+  exact raw binary invocation — `go run .`, a pm2 process, a systemd service, or a wrapper script all had the same
+  wrong command shown. It now shows a generic, honest message pointing at the README's "Install and run" section or
+  the reader's own process manager config instead of guessing.
+
 ## [0.1.1] - 2026-09-22
 
 ### Fixed
