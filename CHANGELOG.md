@@ -57,6 +57,9 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
   The UI gained matching register/log-in forms and a "signed in as ..." / "Log out" header state.
 
 ### Changed
+- The activity "view all" popup now shows at most the last 50 entries (AGENTBOARD-13) instead of fetching up to
+  1000: a long-running board's activity history is effectively unbounded, and the popup only ever needs "recent",
+  not "everything".
 - Activity rows (sidebar and the new "view all" popup) are now two lines - actor and description on one, a task
   chip and a dimmed relative timestamp on the other - instead of one flex row that let a long description crowd
   or misalign the timestamp.

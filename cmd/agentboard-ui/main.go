@@ -22,8 +22,8 @@ const (
 	userKey     = "agentboard.user"
 	defaultUser = "user"
 	pollEvery   = 20 * time.Second
-	sidebarPeek = 5    // agents/activity rows shown before "view all"
-	fullHistory = 1000 // limit passed to /api/activity when expanded
+	sidebarPeek = 5  // agents/activity rows shown before "view all"
+	fullHistory = 50 // limit passed to /api/activity when expanded (AGENTBOARD-13)
 )
 
 type app struct {
@@ -57,9 +57,11 @@ type app struct {
 	// Sidebar "view all" state (AGENTBOARD-4, and AGENTBOARD-9 which turned
 	// it into a popup): agents are never capped by the server, so the
 	// modal's agent list just shows everything already in snap. Activity is
-	// capped in the snapshot (see board.go, snapshotActivity), so opening
-	// the activity modal fetches the fuller list from /api/activity once
-	// and caches it in allActivity until the next page load.
+	// capped in the snapshot (see board.go, snapshotActivity) at fewer rows
+	// than the popup wants, so opening the activity modal instead fetches a
+	// fuller list from /api/activity - capped at fullHistory (50), not the
+	// board's whole activity history (AGENTBOARD-13) - once, caching it in
+	// allActivity until the next page load.
 	allActivity []model.Activity
 
 	// AGENTBOARD-9: "view all" on either sidebar panel instead opens a
@@ -170,11 +172,12 @@ func (a *app) reloadDetail() {
 	}
 }
 
-// loadAllActivity fetches the fuller activity history for the "view all"
-// expansion of the Recent activity panel: the snapshot only carries the
-// newest snapshotActivity entries (see board.go), so this uses the
-// existing GET /api/activity?limit= endpoint instead of trimming what is
-// already in memory. Cached in a.allActivity until the next page load.
+// loadAllActivity fetches the fuller (but still capped, at fullHistory -
+// AGENTBOARD-13) activity history for the "view all" expansion of the Recent
+// activity panel: the snapshot only carries the newest snapshotActivity
+// entries (see board.go), so this uses the existing GET /api/activity?limit=
+// endpoint instead of trimming what is already in memory. Cached in
+// a.allActivity until the next page load.
 func (a *app) loadAllActivity() {
 	go func() {
 		data, err := a.api("GET", fmt.Sprintf("/api/activity?limit=%d", fullHistory), nil)
