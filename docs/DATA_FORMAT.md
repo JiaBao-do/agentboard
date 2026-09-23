@@ -53,7 +53,7 @@ process is provably dead and never touches data files.
 Version 1 was plain indented JSON. On first load such a file is kept once, byte for byte, as `board.json.bak`
 (an existing backup is never overwritten) and `board.json` is rewritten in version 2.
 
-## State schema (`schema version 2`)
+## State schema (`schema version 3`)
 
 The payload is the `State` document: `version`, `projects`, `tasks`, `agents`, `users`, `activity`, `next_activity_id`.
 `agentboard export` writes exactly this document as indented JSON. Field names are stable; renaming one needs a schema
@@ -64,6 +64,15 @@ self-declared, credential-less `agents`. A user record is `{email, password_hash
 updated_at}`; `password_hash` and `salt` are never anything the plaintext password could be recovered from (see
 docs/PITFALLS.md #10). A version 1 file (no `users` field) migrates to an empty, non-nil `users` map on load; no
 existing field changed shape, so a version 1 export still imports cleanly into version 2.
+
+Schema version 3 (AGENTBOARD-6) added optional `start_date`/`end_date` to each task, for the Timeline (Gantt) view: a
+task can have neither, either or both. Both are calendar dates, `"YYYY-MM-DD"`, with no time-of-day and no time zone
+(Go type `model.Date`) - deliberately not a timestamp, since a plan phase like "QA - SIT: Mar 9 - Mar 20" means the
+same calendar days everywhere it is read, not a specific instant that would shift with the reader's zone. When both
+are set, `end_date` is never before `start_date` (enforced by `Board.Update` and again by `ValidateState`, so a
+hand-edited import cannot violate it either). A version 2 file (no task has these fields) migrates by simply leaving
+them unset (a nil `*Date` is already the correct "no date" value), so a version 2 export still imports cleanly into
+version 3.
 
 `DecodeState` (used by both `DecodeFile`'s legacy path and `import`) refuses any input whose top level names none of
 these fields, rather than accepting it as a valid but empty board: a file that is syntactically valid JSON but not

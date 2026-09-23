@@ -179,3 +179,27 @@ curl -sS -c cookies.txt -X POST http://127.0.0.1:7878/api/auth/register \
 curl -sS -b cookies.txt http://127.0.0.1:7878/api/auth/me
 curl -sS -b cookies.txt -X POST http://127.0.0.1:7878/api/auth/logout -H 'Content-Type: application/json' -d '{}'
 ```
+
+## 11. Timeline dates are calendar dates, not timestamps (AGENTBOARD-6)
+
+`Task.StartDate`/`EndDate` (`model.Date`) deliberately carry no time-of-day and no time zone: they marshal as plain
+`"YYYY-MM-DD"`. This is a considered choice, not a missing feature.
+
+- **A plan phase means the same days everywhere.** "QA - SIT: Mar 9 - Mar 20" is the same two weeks whether you read
+  the board from Tokyo or from New York. If these were timestamps, "Mar 9 00:00" would silently mean different
+  instants depending on which zone encoded it and which zone decoded it - exactly the kind of off-by-a-day bug a
+  Gantt chart must never have. [`TestDateJSONRoundTrip`, `TestDateOf`]
+- **Comparisons are calendar order, not duration.** `Date.Before`/`After`/`AddDays` operate on year/month/day; there
+  is no way to ask "how many hours" between two Dates, only whole days (`view.DaysBetween`). Do not convert a `Date`
+  to a `time.Time` and do duration arithmetic on it expecting DST-aware results - there is no DST in a calendar date.
+- **A bar's end date is inclusive on screen, exclusive in the math.** If `EndDate` is March 9, the task occupies all
+  of March 9 in the Timeline view; internally `internal/view.TaskRange` treats the displayed range as
+  `[StartDate, EndDate+1day)` so bar-width arithmetic is plain day counting, never an off-by-one sliver.
+  [`TestTaskRange`, `TestBarSpan`]
+- **Either, both or neither may be set**, on any task type (epic, story or task): the Timeline view only cares
+  whether a task has both dates, never what kind it is. A task with just one of the two is not shown as a bar (there
+  is nothing to draw a range from) but is otherwise a completely normal task. [`TestUpdateDates`, `TestTimelineRowsOmitsUndatedAndOutOfWindow`]
+- **`EndDate` is never before `StartDate`.** `Board.Update` rejects a patch that would produce that ordering (checked
+  against the stored value for whichever end the patch does not touch, so changing only `StartDate` past an existing
+  `EndDate` is rejected too) and `ValidateState` rejects it again on import, so a hand-edited file cannot smuggle in
+  an inverted range. [`TestUpdateDates`, `TestValidateStateRejectsEndBeforeStart`]

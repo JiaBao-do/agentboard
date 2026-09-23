@@ -248,6 +248,52 @@ func TestUpdateOnlySendsGivenFlags(t *testing.T) {
 	}
 }
 
+// TestTaskUpdateDates covers the AGENTBOARD-6 CLI surface: -start/-end set
+// a task's Timeline dates, and "clear"/"none" (either case) remove one
+// without touching the other, mirroring the -labels/-desc empty-string-
+// clears convention already covered by TestUpdateOnlySendsGivenFlags but
+// spelled the way a shell can type it without an awkward -start="".
+func TestTaskUpdateDates(t *testing.T) {
+	ts, b := testServer(t)
+	env := envOf(map[string]string{"AGENTBOARD_URL": ts.URL, "AGENTBOARD_AGENT": "editor"})
+	run(t, env, "project", "add", "AB", "n")
+	run(t, env, "task", "add", "-p", "AB", "title")
+
+	if code, _, errw := run(t, env, "task", "update", "AB-1", "-start", "2026-03-02", "-end", "2026-03-09"); code != 0 {
+		t.Fatal(errw)
+	}
+	d, _ := b.Task("AB-1")
+	if d.Task.StartDate == nil || d.Task.StartDate.String() != "2026-03-02" {
+		t.Fatalf("StartDate = %v", d.Task.StartDate)
+	}
+	if d.Task.EndDate == nil || d.Task.EndDate.String() != "2026-03-09" {
+		t.Fatalf("EndDate = %v", d.Task.EndDate)
+	}
+
+	if code, _, errw := run(t, env, "task", "update", "AB-1", "-start", "CLEAR"); code != 0 {
+		t.Fatal(errw)
+	}
+	d, _ = b.Task("AB-1")
+	if d.Task.StartDate != nil {
+		t.Fatalf("StartDate not cleared: %v", d.Task.StartDate)
+	}
+	if d.Task.EndDate == nil || d.Task.EndDate.String() != "2026-03-09" {
+		t.Fatalf("EndDate should be untouched: %v", d.Task.EndDate)
+	}
+
+	if code, _, errw := run(t, env, "task", "update", "AB-1", "-end", "none"); code != 0 {
+		t.Fatal(errw)
+	}
+	d, _ = b.Task("AB-1")
+	if d.Task.EndDate != nil {
+		t.Fatalf("EndDate not cleared: %v", d.Task.EndDate)
+	}
+
+	if code, _, errw := run(t, env, "task", "update", "AB-1", "-start", "not-a-date"); code != 1 || !strings.Contains(errw, "400") {
+		t.Fatalf("bad date: code=%d err=%q", code, errw)
+	}
+}
+
 func TestTokenIsSentAndStopNeedsShutdownEnabled(t *testing.T) {
 	b, _ := agentboard.Open(agentboard.Options{SaveMode: agentboard.SaveSync})
 	defer b.Close(context.Background())

@@ -345,6 +345,9 @@ func migrate(st *model.State) {
 	// Version 2 added Users; older files simply lack the field, and the nil
 	// map is initialised right after migrate() runs, so there is nothing to
 	// transform here.
+	// Version 3 added optional Task.StartDate/EndDate; older files simply
+	// lack the fields, and a nil *Date is already the correct "no date"
+	// zero value, so there is nothing to transform here either.
 	st.Version = model.SchemaVersion
 }
 
@@ -378,6 +381,9 @@ func ValidateState(st *model.State) error {
 		}
 		if !t.Type.Valid() {
 			return invalid("task %s has invalid type %q", id, t.Type)
+		}
+		if t.StartDate != nil && t.EndDate != nil && t.EndDate.Before(*t.StartDate) {
+			return invalid("task %s has end date %s before start date %s", id, t.EndDate, t.StartDate)
 		}
 		if _, n := splitID(id); n > maxSeq[t.Project] {
 			maxSeq[t.Project] = n

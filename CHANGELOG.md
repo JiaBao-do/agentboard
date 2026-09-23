@@ -6,6 +6,12 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
 ## [Unreleased]
 
 ### Added
+- Timeline (Gantt) view foundation: `Task` gained optional `StartDate`/`EndDate` calendar dates (schema version 3;
+  see docs/DATA_FORMAT.md), settable and clearable with `agentboard task update ID -start YYYY-MM-DD -end
+  YYYY-MM-DD` (`-start clear`/`-end clear` removes one without touching the other) and over `PATCH /api/tasks/{id}`.
+  `EndDate` is never before `StartDate` when both are set. A version 2 board migrates with no data change (tasks
+  simply have no dates yet). `internal/view` gained the pure date math (month/week bucketing, bar position and
+  width) the Timeline UI is built on, unit tested independently of the browser.
 - User accounts (email + password) for the web UI, distinct from the existing, credential-less `Agent`: `Board.Register`,
   `Board.Authenticate`, and `POST /api/auth/{register,login,logout}` + `GET /api/auth/me`. Passwords are hashed with
   PBKDF2-HMAC-SHA256 (600,000 iterations, OWASP's current minimum; standard-library only - no new dependency), a

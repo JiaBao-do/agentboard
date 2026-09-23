@@ -363,6 +363,19 @@ func TestUpdate(t *testing.T) {
 		{"bad status", agentboard.Patch{Status: st("nope")}, agentboard.ErrInvalid, nil},
 		{"bad priority", agentboard.Patch{Priority: pr("nope")}, agentboard.ErrInvalid, nil},
 		{"empty title", agentboard.Patch{Title: str("")}, agentboard.ErrInvalid, nil},
+		{"set start and end dates", agentboard.Patch{StartDate: str("2026-03-02"), EndDate: str("2026-03-09")}, nil, func(t *testing.T, k agentboard.Task) {
+			if k.StartDate == nil || k.StartDate.String() != "2026-03-02" || k.EndDate == nil || k.EndDate.String() != "2026-03-09" {
+				t.Fatalf("%+v / %+v", k.StartDate, k.EndDate)
+			}
+		}},
+		{"bad start date format", agentboard.Patch{StartDate: str("03/02/2026")}, agentboard.ErrInvalid, nil},
+		{"bad end date format", agentboard.Patch{EndDate: str("not-a-date")}, agentboard.ErrInvalid, nil},
+		{"end before start", agentboard.Patch{StartDate: str("2026-03-09"), EndDate: str("2026-03-02")}, agentboard.ErrInvalid, nil},
+		{"end equals start is allowed", agentboard.Patch{StartDate: str("2026-03-02"), EndDate: str("2026-03-02")}, nil, func(t *testing.T, k agentboard.Task) {
+			if k.StartDate.String() != k.EndDate.String() {
+				t.Fatalf("%+v / %+v", k.StartDate, k.EndDate)
+			}
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -395,6 +408,68 @@ func TestUpdate(t *testing.T) {
 		}
 		if after := len(b.Recent(1000)); after != before {
 			t.Fatalf("activity grew from %d to %d", before, after)
+		}
+	})
+}
+
+// TestUpdateDates covers the AGENTBOARD-6 Timeline fields beyond the table
+// above: clearing a previously set date, changing only one end of an
+// existing range (checked against the *stored* other end, not just the
+// patch), and that a rejected patch (end before the resulting start) leaves
+// the stored task untouched rather than partially applying one field.
+func TestUpdateDates(t *testing.T) {
+	str := func(s string) *string { return &s }
+
+	t.Run("clear a set date", func(t *testing.T) {
+		b, _ := newBoard(t)
+		addTask(t, b, "job")
+		if _, err := b.Update("AB-1", agentboard.Patch{Actor: "tester", StartDate: str("2026-03-02"), EndDate: str("2026-03-09")}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := b.Update("AB-1", agentboard.Patch{Actor: "tester", StartDate: str("")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.StartDate != nil {
+			t.Fatalf("StartDate = %v, want cleared", got.StartDate)
+		}
+		if got.EndDate == nil || got.EndDate.String() != "2026-03-09" {
+			t.Fatalf("EndDate = %v, want untouched 2026-03-09", got.EndDate)
+		}
+	})
+
+	t.Run("moving start past the stored end is rejected and does not mutate", func(t *testing.T) {
+		b, _ := newBoard(t)
+		addTask(t, b, "job")
+		if _, err := b.Update("AB-1", agentboard.Patch{Actor: "tester", StartDate: str("2026-03-02"), EndDate: str("2026-03-09")}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := b.Update("AB-1", agentboard.Patch{Actor: "tester", StartDate: str("2026-03-15")}) // now after the stored end
+		if !errors.Is(err, agentboard.ErrInvalid) {
+			t.Fatalf("err = %v, want ErrInvalid", err)
+		}
+		d, err := b.Task("AB-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Task.StartDate == nil || d.Task.StartDate.String() != "2026-03-02" {
+			t.Fatalf("rejected patch mutated StartDate: %v", d.Task.StartDate)
+		}
+	})
+
+	t.Run("works on any task type", func(t *testing.T) {
+		b, _ := newBoard(t)
+		b.CreateProject("AB", "p", "tester")
+		epic, err := b.AddTask(agentboard.NewTask{Project: "AB", Type: agentboard.KindEpic, Title: "phase 1", Actor: "tester"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := b.Update(epic.ID, agentboard.Patch{Actor: "tester", StartDate: str("2026-03-02"), EndDate: str("2026-05-25")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.StartDate == nil || got.EndDate == nil {
+			t.Fatalf("epic dates not set: %+v", got)
 		}
 	})
 }

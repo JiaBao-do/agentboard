@@ -27,8 +27,14 @@ task tracker with agent presence and leases.
   not - they are server-side, in-memory and ephemeral by design, so a restart logs everyone out.
 - `internal/webui/dist`: embedded UI (`index.html`, `boot.js`, `style.css`, `app.wasm`, `wasm_exec.js`).
 - `cmd/agentboard-ui`: the UI, Go with `syscall/js`; only builds for `GOOS=js GOARCH=wasm`.
-- `internal/view`: pure UI logic (grouping, time formatting), unit tested natively.
+- `internal/view`: pure UI logic (grouping, time formatting, and the Timeline/Gantt date math in `timeline.go` -
+  month/week bucketing, bar position and width), unit tested natively.
 - `internal/cli` + `cmd/agentboard`: the command line.
+- Timeline view (AGENTBOARD-6): `model.Date` (`model/date.go`) is a calendar date with no time-of-day/zone, used by
+  `Task.StartDate`/`EndDate` (schema v3). `Board.Update` validates and applies them (tri-state `Patch.StartDate`/
+  `EndDate` `*string`: nil unchanged, `""` clears, else parsed); `internal/view/timeline.go` turns a project's dated
+  tasks into month/week header segments and bar spans; `cmd/agentboard-ui`'s Timeline tab renders them as a CSS grid
+  so the header, gridlines and every bar share one date-to-percentage mapping.
 
 ## Conventions
 - Requires **Go 1.24+** (`go.mod` says `go 1.24`, no toolchain line; CI runs 1.24 and `stable`). Develop on the latest Go but use **no API newer than 1.24** (no `WaitGroup.Go`, no `errors.AsType`); `go vet` (stdversion) enforces it, and the 1.24 CI job runs the full tests. **Zero third-party dependencies**, `go.mod` has no `require`.
@@ -69,6 +75,8 @@ Runtime guarantees:
     revocation (logout) must stay real, not "delete the client's copy and hope".
 
 ## Roadmap
+- Timeline view follow-ups (deliberately out of scope for AGENTBOARD-6): dragging a bar to reschedule it, a
+  multi-project overview, and a "today" marker line through the chart.
 - Drag and drop between columns, saved filters.
 - More export formats (CSV), import from other trackers.
 - Per-project WIP limits and lease policies.

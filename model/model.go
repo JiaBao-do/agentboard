@@ -118,6 +118,15 @@ type Task struct {
 	UpdatedBy    string     `json:"updated_by,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
+	// StartDate and EndDate optionally place the task on a calendar for the
+	// Timeline/Gantt view (AGENTBOARD-6). Both are dates, not timestamps: no
+	// time-of-day, no time zone (see Date). Either, both or neither may be
+	// set; when both are set EndDate is never before StartDate (checked by
+	// Board.Update and again by ValidateState). A task with no StartDate or
+	// no EndDate has no bar and is omitted from the Timeline view. Works on
+	// any task type (epic, story or task): the view does not require one.
+	StartDate *Date `json:"start_date,omitempty"`
+	EndDate   *Date `json:"end_date,omitempty"`
 }
 
 // Agent is a worker (an AI agent, a script or a person) that reports in with
@@ -150,8 +159,10 @@ type Activity struct {
 // misread by older binaries; see docs/DATA_FORMAT.md.
 //
 // Version 2 added Users (human accounts with credentials, distinct from the
-// self-declared, credential-less Agent).
-const SchemaVersion = 2
+// self-declared, credential-less Agent). Version 3 added optional
+// StartDate/EndDate calendar dates on Task for the Timeline view
+// (AGENTBOARD-6).
+const SchemaVersion = 3
 
 // User is a human account authenticated by email and password, used to log
 // in to the web UI. It is distinct from Agent: an Agent is a self-declared

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/JiaBao-do/agentboard"
+	"github.com/JiaBao-do/agentboard/model"
 )
 
 // Version is set at build time (-ldflags "-X .../internal/cli.Version=v0.1.0");
@@ -547,6 +548,13 @@ func dash(s string) string {
 	return s
 }
 
+func dateOrDash(d *model.Date) string {
+	if d == nil {
+		return "-"
+	}
+	return d.String()
+}
+
 func (a *app) taskShow(args []string) error {
 	fs := a.newFlags("task show")
 	c := a.addClientFlags(fs)
@@ -569,6 +577,9 @@ func (a *app) taskShow(args []string) error {
 	fmt.Fprintf(a.out, "  type %s | status %s | priority %s | agent %s | parent %s\n", t.Type, t.Status, t.Priority, dash(t.Assignee), dash(t.Parent))
 	if t.LeaseExpires != nil {
 		fmt.Fprintf(a.out, "  lease until %s\n", t.LeaseExpires.Local().Format(time.RFC3339))
+	}
+	if t.StartDate != nil || t.EndDate != nil {
+		fmt.Fprintf(a.out, "  timeline %s - %s\n", dateOrDash(t.StartDate), dateOrDash(t.EndDate))
 	}
 	if t.Description != "" {
 		fmt.Fprintf(a.out, "\n%s\n", t.Description)
@@ -638,6 +649,8 @@ func (a *app) taskUpdate(args []string) error {
 		desc     = fs.String("desc", "", "new description")
 		labels   = fs.String("labels", "", "replace labels (comma separated)")
 		parent   = fs.String("parent", "", "new parent ID")
+		start    = fs.String("start", "", "Timeline start `date` YYYY-MM-DD; \"clear\" or \"none\" removes it")
+		end      = fs.String("end", "", "Timeline end `date` YYYY-MM-DD; \"clear\" or \"none\" removes it")
 	)
 	pos, err := parse(fs, args)
 	if err != nil {
@@ -667,6 +680,12 @@ func (a *app) taskUpdate(args []string) error {
 			p.Labels = &l
 		case "parent":
 			p.Parent = parent
+		case "start":
+			v := clearsDate(*start)
+			p.StartDate = &v
+		case "end":
+			v := clearsDate(*end)
+			p.EndDate = &v
 		}
 	})
 	t, err := c.client().Update(a.ctx, pos[0], p)
@@ -674,6 +693,18 @@ func (a *app) taskUpdate(args []string) error {
 		return err
 	}
 	return a.printTaskID(c, t)
+}
+
+// clearsDate maps the CLI's "clear"/"none" spelling (easier to type than an
+// empty -start="" flag, which most shells make awkward) to the empty string
+// Patch.StartDate/EndDate use to mean "remove this date"; anything else
+// passes through for the server to parse and validate as YYYY-MM-DD.
+func clearsDate(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "clear", "none":
+		return ""
+	}
+	return v
 }
 
 func (a *app) taskComment(args []string) error {

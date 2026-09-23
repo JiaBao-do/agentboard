@@ -639,7 +639,28 @@ func cloneTask(t *model.Task) model.Task {
 		e := *t.LeaseExpires
 		c.LeaseExpires = &e
 	}
+	if t.StartDate != nil {
+		d := *t.StartDate
+		c.StartDate = &d
+	}
+	if t.EndDate != nil {
+		d := *t.EndDate
+		c.EndDate = &d
+	}
 	return c
+}
+
+// datePtrEqual reports whether a and b name the same date, treating two nil
+// pointers (both "unset") as equal.
+func datePtrEqual(a, b *model.Date) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil || b == nil:
+		return false
+	default:
+		return a.Equal(b.Time)
+	}
 }
 
 // idLess orders task IDs like "AB-2" before "AB-10".
@@ -884,6 +905,27 @@ func (b *Board) Update(id string, p Patch) (Task, error) {
 			return Task{}, err
 		}
 	}
+	// StartDate/EndDate use the same tri-state convention as Parent: nil
+	// leaves the field alone, an empty string clears it, anything else must
+	// parse as a date. Parsed here (outside the lock) so a malformed date
+	// never reaches b.do; the combined start/end ordering is checked once
+	// the closure knows the resulting values (below), before either field is
+	// mutated on the live task.
+	var startDate, endDate *model.Date
+	if p.StartDate != nil && *p.StartDate != "" {
+		d, derr := model.ParseDate(*p.StartDate)
+		if derr != nil {
+			return Task{}, invalid("start date: %v", derr)
+		}
+		startDate = &d
+	}
+	if p.EndDate != nil && *p.EndDate != "" {
+		d, derr := model.ParseDate(*p.EndDate)
+		if derr != nil {
+			return Task{}, invalid("end date: %v", derr)
+		}
+		endDate = &d
+	}
 	var out Task
 	err = b.do(func(now time.Time) (*Event, error) {
 		t, err := b.taskLocked(id)
@@ -894,6 +936,16 @@ func (b *Board) Update(id string, p Patch) (Task, error) {
 			if err := b.checkParentLocked(t.Project, t.Type, *p.Parent); err != nil {
 				return nil, err
 			}
+		}
+		finalStart, finalEnd := t.StartDate, t.EndDate
+		if p.StartDate != nil {
+			finalStart = startDate
+		}
+		if p.EndDate != nil {
+			finalEnd = endDate
+		}
+		if finalStart != nil && finalEnd != nil && finalEnd.Before(*finalStart) {
+			return nil, invalid("end date %s is before start date %s", finalEnd, finalStart)
 		}
 		var changed []string
 		if p.Title != nil && strings.TrimSpace(*p.Title) != t.Title {
@@ -915,6 +967,14 @@ func (b *Board) Update(id string, p Patch) (Task, error) {
 		if p.Parent != nil && *p.Parent != t.Parent {
 			t.Parent = *p.Parent
 			changed = append(changed, "parent")
+		}
+		if p.StartDate != nil && !datePtrEqual(t.StartDate, finalStart) {
+			t.StartDate = finalStart
+			changed = append(changed, "start_date")
+		}
+		if p.EndDate != nil && !datePtrEqual(t.EndDate, finalEnd) {
+			t.EndDate = finalEnd
+			changed = append(changed, "end_date")
 		}
 		if len(changed) > 0 {
 			b.log(now, actor, id, "updated", strings.Join(changed, ", "))

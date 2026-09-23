@@ -51,6 +51,8 @@ Integrations for Claude Code hooks and automation loops are docs only: [`docs/ex
   in and log out at `/api/auth/*` or the UI's Account panel. This is authentication only, not a new access-control
   layer - see "Things to care about" below and [`examples/auth-demo`](examples/auth-demo).
 - Epic → story → task hierarchy, statuses `todo / in_progress / review / done / blocked`, priorities, labels.
+- Timeline (Gantt) view: give any task an optional start/end date (`task update ID -start ... -end ...`) and see a
+  project's phases as a month-by-month chart with weekly gridlines and proportional bars.
 - Live board over Server-Sent Events, agent presence, activity timeline, dark/light theme, Stop button.
 - REST API, Go client, CLI (`serve`, `task`, `agent`, `status`, `export`, `import`, `dump`, `demo`, `stop`), generic signed webhook.
 - Write-behind saving with coalescing, retry and a visible Saved / Saving / Save failed state.
@@ -74,6 +76,8 @@ Full list with wrong/right snippets and the tests that back each claim: [docs/PI
   invalidates the session server-side. Registration domains are never hardcoded: `-allowed-email-domains` is opt-in
   and empty by default. Failed logins are throttled per account (10/15min) as a basic guard, not a substitute for a
   real rate limiter. Full detail, including exactly what the login throttle does and does not defend against: [docs/PITFALLS.md](docs/PITFALLS.md#10-user-accounts-sessions-and-passwords-agentboard-8).
+- Timeline dates (`StartDate`/`EndDate`) are calendar dates, not timestamps: no time-of-day, no time zone, so a
+  phase's date range reads the same everywhere the board is viewed.
 - Behind a proxy, turn response buffering off for `/api/events`.
 - `board.json` is binary: use `export`/`import`, back up the whole data directory.
 - `app.wasm` and `wasm_exec.js` must come from the same Go release (committed pair: Go 1.27); rebuild with `go generate ./internal/webui`.

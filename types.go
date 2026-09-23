@@ -82,7 +82,13 @@ type Patch struct {
 	Priority    *Priority `json:"priority,omitempty"`
 	Parent      *string   `json:"parent,omitempty"` // "" detaches from the current parent
 	Labels      *[]string `json:"labels,omitempty"`
-	Actor       string    `json:"actor,omitempty"`
+	// StartDate and EndDate set a task's Timeline dates (AGENTBOARD-6),
+	// "YYYY-MM-DD" each. nil leaves the field unchanged, "" clears it (the
+	// same tri-state convention Parent above already uses), and any other
+	// value must parse as a date or the whole patch is rejected.
+	StartDate *string `json:"start_date,omitempty"`
+	EndDate   *string `json:"end_date,omitempty"`
+	Actor     string  `json:"actor,omitempty"`
 }
 
 // Filter selects tasks for Board.Tasks. Empty fields match everything.
