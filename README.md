@@ -24,7 +24,7 @@ queue. Every change is attributed to a real actor (never anonymous) and shown on
 
 ```sh
 go install github.com/JiaBao-do/agentboard/cmd/agentboard@latest   # Go 1.24+; or download a release binary
-agentboard serve            # http://127.0.0.1:7878, data in ./.agentboard
+agentboard serve            # http://127.0.0.1:7878, data in ./data
 agentboard demo             # in another terminal: fill it with a realistic example
 ```
 

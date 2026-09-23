@@ -26,4 +26,5 @@ Thumbs.db
 # Local run notes may contain machine paths: never commit
 /RUNNING.md
 /STATUS.md
+/data/
 /.agentboard/

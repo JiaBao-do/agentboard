@@ -5,6 +5,14 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
 
 ## [Unreleased]
 
+### Changed
+- **Behavior change:** the default data directory (`serve -data`/`AGENTBOARD_DATA`, when neither is given) is now
+  `./data` instead of the hidden `./.agentboard`. This only changes the *default*; an explicit `-data` flag or
+  `AGENTBOARD_DATA` still wins exactly as before. Existing deployments that relied on the old default and pass no
+  explicit `-data` will look in the wrong place after upgrading: either move `.agentboard/` to `data/`, or keep
+  passing `-data .agentboard` (or set `AGENTBOARD_DATA=.agentboard`) to preserve the old location. File layout inside
+  the directory is unchanged (one compressed/checksummed `board.json`, `agentboard.lock`, `archive/`).
+
 ### Fixed
 - The "Server stopped" screen no longer shows a fabricated restart command. It previously guessed
   `agentboard serve -addr <host>`, which is wrong (and unusable if copy-pasted) for anything not started as that

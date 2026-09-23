@@ -28,7 +28,7 @@ var Version = "dev"
 const (
 	defaultURL  = "http://127.0.0.1:7878"
 	defaultAddr = "127.0.0.1:7878"
-	defaultData = ".agentboard"
+	defaultData = "data"
 	boardFile   = "board.json"
 )
 
