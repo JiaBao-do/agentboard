@@ -341,3 +341,28 @@ func Limit[T any](s []T, n int) []T {
 	}
 	return s[:n]
 }
+
+// AgentSummary is a lifecycle count over an agent roster (AGENTBOARD-14).
+// agentboard's agent list is append-only - there is no delete/prune - so
+// Total is not "how many exist right now" in the sense a mutable roster
+// would give, it is every name that has ever registered; Online/Offline
+// split that same roster by current heartbeat state. There is no
+// first-registered timestamp on Agent, so this reports counts only, never a
+// fabricated "when" for any agent.
+type AgentSummary struct {
+	Total   int // every agent that has ever registered
+	Online  int // recent heartbeat (Agent.Online)
+	Offline int // Total - Online: lapsed, not deleted
+}
+
+// SummarizeAgents computes an AgentSummary over agents.
+func SummarizeAgents(agents []model.Agent) AgentSummary {
+	s := AgentSummary{Total: len(agents)}
+	for _, a := range agents {
+		if a.Online {
+			s.Online++
+		}
+	}
+	s.Offline = s.Total - s.Online
+	return s
+}

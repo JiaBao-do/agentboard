@@ -297,3 +297,6 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 .avatar-7 { background: var(--avatar-7); }
 .avatar-8 { background: var(--avatar-8); }
 .avatar-9 { background: var(--avatar-9); }
+
+/* AGENTBOARD-14: unobtrusive counts line under the "Agents" sidebar heading. */
+.agent-summary { margin: -2px 0 6px; }

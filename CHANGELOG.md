@@ -17,6 +17,11 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
   accounts: re-register on the new board. See docs/PITFALLS.md #12.
 
 ### Added
+- An agent lifecycle summary (AGENTBOARD-14) in the sidebar's "Agents" panel and its "view all" popup title: total
+  ever registered, currently online, currently offline. agentboard's agent roster is append-only (no delete/prune),
+  so "total" means every name that has ever reported in, not a live headcount, and there is deliberately no
+  fabricated "registered X ago" timeline - `Agent` carries no first-seen field to build one on. `internal/view`
+  gained `AgentSummary`/`SummarizeAgents`, unit tested (empty, all online, all offline, mixed).
 - Per-agent avatars (AGENTBOARD-12), shown wherever an agent's identity is shown (the agents sidebar panel, the
   "view all" agents popup, task assignee tags, and activity/timeline actor tags): a small colored badge with the
   agent's initials, computed entirely client-side from data already on the `Agent` record - no fetched image, no

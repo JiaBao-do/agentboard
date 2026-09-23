@@ -158,6 +158,24 @@ func TestAvatarPalette(t *testing.T) {
 	}
 }
 
+func TestSummarizeAgents(t *testing.T) {
+	tests := []struct {
+		name   string
+		agents []model.Agent
+		want   view.AgentSummary
+	}{
+		{"empty", nil, view.AgentSummary{}},
+		{"all online", []model.Agent{{Name: "a", Online: true}, {Name: "b", Online: true}}, view.AgentSummary{Total: 2, Online: 2, Offline: 0}},
+		{"all offline", []model.Agent{{Name: "a"}, {Name: "b"}}, view.AgentSummary{Total: 2, Online: 0, Offline: 2}},
+		{"mixed", []model.Agent{{Name: "a", Online: true}, {Name: "b"}, {Name: "c", Online: true}}, view.AgentSummary{Total: 3, Online: 2, Offline: 1}},
+	}
+	for _, tc := range tests {
+		if got := view.SummarizeAgents(tc.agents); got != tc.want {
+			t.Errorf("%s: SummarizeAgents = %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestDescribe(t *testing.T) {
 	tests := []struct {
 		a    model.Activity

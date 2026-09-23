@@ -324,10 +324,26 @@ func (a *app) sidebar() js.Value {
 
 	return el("aside", "side",
 		sideHead("Agents", len(sorted) > sidebarPeek, fmt.Sprintf("View all %d", len(sorted)), "show-all-agents"),
+		agentSummaryLine(view.SummarizeAgents(a.snap.Agents)),
 		el("div", "side-list", agents),
 		sideHead("Recent activity", moreActivity, "View all", "show-all-activity"),
 		el("div", "side-list", recent),
 	)
+}
+
+// agentSummaryLine renders the AGENTBOARD-14 agent lifecycle summary: total
+// ever registered, currently online, currently offline. agentboard's agent
+// roster is append-only (no delete/prune), so "total" really does mean every
+// name that has ever reported in, not a live headcount; this is deliberately
+// just counts, with no fabricated "registered X ago" timeline, since Agent
+// carries no first-seen field to base one on. Kept as an unobtrusive small
+// stats line under the "Agents" heading, not a dashboard of its own.
+func agentSummaryLine(s view.AgentSummary) js.Value {
+	if s.Total == 0 {
+		return js.Undefined()
+	}
+	return el("div", "muted small agent-summary",
+		fmt.Sprintf("%d total · %d online · %d offline", s.Total, s.Online, s.Offline))
 }
 
 // sideHead renders a sidebar section title, adding a "view all" control
@@ -397,7 +413,8 @@ func (a *app) viewAllModal() js.Value {
 	switch a.viewAllKind {
 	case "agents":
 		sorted := view.SortAgentsByRecency(a.snap.Agents)
-		title = fmt.Sprintf("All agents (%d)", len(sorted))
+		s := view.SummarizeAgents(a.snap.Agents)
+		title = fmt.Sprintf("All agents (%d total · %d online · %d offline)", s.Total, s.Online, s.Offline)
 		list = a.agentRows(sorted)
 	case "activity":
 		items := a.snap.Activity
