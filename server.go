@@ -270,6 +270,10 @@ func (s *Server) routes() {
 		writeJSON(w, http.StatusOK, s.o.Board.Recent(limit))
 	})
 	m.HandleFunc("GET /api/export", func(w http.ResponseWriter, _ *http.Request) {
+		// Board.Export (never ExportWithCredentials) is deliberate: this
+		// endpoint is network-reachable, so it must never carry a User's
+		// PasswordHash/Salt/Iterations - see Export's doc comment and
+		// docs/PITFALLS.md #12.
 		st, err := s.o.Board.Export()
 		if err != nil {
 			s.reply(w, http.StatusOK, nil, err)

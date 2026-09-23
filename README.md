@@ -78,6 +78,9 @@ Full list with wrong/right snippets and the tests that back each claim: [docs/PI
   real rate limiter. Full detail, including exactly what the login throttle does and does not defend against: [docs/PITFALLS.md](docs/PITFALLS.md#10-user-accounts-sessions-and-passwords-agentboard-8).
 - Timeline dates (`StartDate`/`EndDate`) are calendar dates, not timestamps: no time-of-day, no time zone, so a
   phase's date range reads the same everywhere the board is viewed.
+- `GET /api/export` (and `agentboard export`/`dump` without `-data`) never includes any user's password hash or
+  salt, regardless of auth state - a network export drops accounts entirely; re-register them on the new board.
+  Only the offline `export -data DIR` path (already needs filesystem access) keeps full account fidelity for backups.
 - Behind a proxy, turn response buffering off for `/api/events`.
 - `board.json` is binary: use `export`/`import`, back up the whole data directory.
 - `app.wasm` and `wasm_exec.js` must come from the same Go release (committed pair: Go 1.27); rebuild with `go generate ./internal/webui`.

@@ -5,6 +5,17 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
 
 ## [Unreleased]
 
+### Security
+- **Fixed:** `GET /api/export` (and `agentboard export`/`dump` run without `-data`) returned every registered
+  user's `password_hash` and `salt` unfiltered, with no authentication required beyond whatever already protects
+  the endpoint - on the default loopback bind, any local process could read every account's PBKDF2 hash, which
+  is exactly the input an offline dictionary/brute-force attack needs and completely bypasses the per-account
+  login throttle (AGENTBOARD-11, found by an independent verification pass). `Board.Export` (the code this
+  endpoint calls) now always drops the `users` map from a network export; the offline `export -data DIR` path
+  (`Board.ExportWithCredentials`) is unaffected and keeps full account fidelity for real backups, since reaching
+  it already needs filesystem access to the data directory. A network export/import cycle no longer carries
+  accounts: re-register on the new board. See docs/PITFALLS.md #12.
+
 ### Added
 - Timeline (Gantt) view foundation: `Task` gained optional `StartDate`/`EndDate` calendar dates (schema version 3;
   see docs/DATA_FORMAT.md), settable and clearable with `agentboard task update ID -start YYYY-MM-DD -end

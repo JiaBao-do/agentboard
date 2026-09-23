@@ -56,8 +56,9 @@ Version 1 was plain indented JSON. On first load such a file is kept once, byte 
 ## State schema (`schema version 3`)
 
 The payload is the `State` document: `version`, `projects`, `tasks`, `agents`, `users`, `activity`, `next_activity_id`.
-`agentboard export` writes exactly this document as indented JSON. Field names are stable; renaming one needs a schema
-version bump and a migration step in `DecodeState`.
+`agentboard export` writes exactly this document as indented JSON (see "Exporting user accounts" below for what the
+network-reachable `GET /api/export` leaves out). Field names are stable; renaming one needs a schema version bump and
+a migration step in `DecodeState`.
 
 Schema version 2 (AGENTBOARD-8) added `users`: human accounts with a hashed password, distinct from the
 self-declared, credential-less `agents`. A user record is `{email, password_hash, salt, iterations, created_at,
@@ -79,3 +80,23 @@ these fields, rather than accepting it as a valid but empty board: a file that i
 actually a board export (say `{"hello":"world"}`) decodes to a zero-valued `State` with nothing internally
 inconsistent about it, so without this check it would be silently imported as an empty board. A genuine legacy file
 that predates the `version` field still names `projects` and `tasks`, so it is unaffected.
+
+## Exporting user accounts
+
+`agentboard export`/`dump` run **offline**, reading `board.json` straight off disk (the server must not be running):
+getting this far already needs filesystem access to the data directory, which is at least as strong a bar as reading
+`board.json` directly, so this path (`Board.ExportWithCredentials` underneath it) keeps full fidelity,
+`password_hash`/`salt`/`iterations` included, so that moving a whole board - accounts and all - between machines
+works as a real restore.
+
+`GET /api/export` (and anything reachable over the network, including a same-host process that just hits the bound
+port, and therefore `agentboard export`/`dump` run *without* `-data`) is a different trust boundary: reaching it
+needs no filesystem access at all, and on the default loopback bind that is a low bar in practice - any local process
+can hit `127.0.0.1:7878`. So this path (`Board.Export`) **never** includes `password_hash`, `salt` or `iterations`
+for any `User`, regardless of `-token`/auth state: it drops the `users` map entirely rather than emit half-shaped
+User records (email/timestamps but no credential) that `ValidateState` would then refuse to import at all - see
+`docs/PITFALLS.md` #12. An export made this way still restores projects, tasks, agents and activity; accounts must be
+re-registered on the new board. (An earlier version of this document reasoned that exposing `password_hash`/`salt`
+was safe because the hash is not reversible; that reasoning was wrong - a leaked salted PBKDF2 hash is exactly the
+input an offline dictionary/brute-force attack needs, and handing it out for free defeats the login rate limiter
+entirely. AGENTBOARD-11.)

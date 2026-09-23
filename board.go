@@ -1205,9 +1205,49 @@ func (b *Board) Recent(limit int) []Activity {
 }
 
 // Export returns a deep copy of the whole persisted state, suitable for
-// EncodeState. It is the basis of backups and of moving a board between
-// machines.
+// EncodeState, with every User account dropped entirely. This is the SAFE
+// default, and the one every network-reachable caller (GET /api/export,
+// and therefore "agentboard export"/"dump" without -data) must use: reaching
+// this call over HTTP needs no filesystem access at all, which on the
+// default loopback bind is a much lower bar in practice than reading
+// board.json directly, so a User's PBKDF2 hash and salt - exactly the input
+// an offline dictionary/brute-force attack needs - must never travel this
+// path, regardless of auth state (see docs/PITFALLS.md #12).
+//
+// Users are omitted rather than kept with their PasswordHash/Salt/
+// Iterations blanked out: a User record with those fields empty fails
+// ValidateState (by design - it is what stops a half-written credential
+// from silently authenticating nobody, see store.go), which would make the
+// whole file refuse to import. Dropping the accounts entirely keeps a
+// network export a normal, fully re-importable board; whoever imports it
+// re-registers accounts, exactly as documented in docs/DATA_FORMAT.md.
+//
+// Use ExportWithCredentials for the one legitimate case that needs full
+// fidelity: the offline backup/restore path, which already requires
+// filesystem access to the data directory before it can run at all.
 func (b *Board) Export() (*State, error) {
+	st, err := b.exportState()
+	if err != nil {
+		return nil, err
+	}
+	st.Users = map[string]*model.User{}
+	return st, nil
+}
+
+// ExportWithCredentials returns a deep copy of the whole persisted state,
+// Users included with their real PasswordHash/Salt/Iterations. Never expose
+// this over HTTP or any other network-reachable surface - see Export's doc
+// comment for why. It exists for embedders driving Board directly in an
+// already-offline/trusted context (agentboard's own CLI does not call it:
+// "agentboard export -data DIR" instead reads board.json straight off disk,
+// which needs the same filesystem access this method would substitute for).
+func (b *Board) ExportWithCredentials() (*State, error) {
+	return b.exportState()
+}
+
+// exportState does the actual locked snapshot-and-decode; Export and
+// ExportWithCredentials differ only in what they do to Users afterward.
+func (b *Board) exportState() (*State, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.sweepLocked(b.now().UTC())

@@ -203,3 +203,33 @@ curl -sS -b cookies.txt -X POST http://127.0.0.1:7878/api/auth/logout -H 'Conten
   against the stored value for whichever end the patch does not touch, so changing only `StartDate` past an existing
   `EndDate` is rejected too) and `ValidateState` rejects it again on import, so a hand-edited file cannot smuggle in
   an inverted range. [`TestUpdateDates`, `TestValidateStateRejectsEndBeforeStart`]
+
+## 12. A network export never carries credential material (AGENTBOARD-11)
+
+`GET /api/export` - and therefore `agentboard export`/`dump` run without `-data` - is **fully unauthenticated on the
+default loopback bind** in the same way every other endpoint is (pitfall 4/5's threat model: reachability, not
+identity, is the boundary agentboard enforces). An earlier version of this project reasoned that returning every
+`User`'s `password_hash`/`salt` here was safe because a PBKDF2 hash cannot be reversed to the plaintext password.
+**That reasoning was wrong.** A leaked salted hash is exactly the input an offline dictionary/brute-force attack
+needs - it does not require ever talking to agentboard again, so it also completely bypasses the per-account login
+throttle (pitfall 10) that was built specifically to slow that attack down.
+
+```sh
+# Before the fix: any local process could do this, no token, no login.
+curl -s http://127.0.0.1:7878/api/export | jq '.users'
+# {"dev@example.com": {"password_hash": "...", "salt": "...", "iterations": 600000, ...}}
+```
+
+- **`Board.Export` (what `GET /api/export` calls) now always drops the `users` map entirely** from a network export,
+  regardless of `-token`/session state - never just the three sensitive fields with everything else left in place,
+  because a `User` record missing `password_hash`/`salt`/`iterations` fails `ValidateState` (by design, see pitfall 8
+  and `docs/DATA_FORMAT.md`) and would make the whole exported file refuse to `import`. [`TestNetworkExportNeverCarriesCredentials`]
+- **A network export/import cycle does not carry accounts.** If you `agentboard export` (or click the UI's export)
+  from a running server and `import` it elsewhere, projects/tasks/agents/activity come across as before, but every
+  registered user must **re-register** on the new board - there is no account data left in that file to restore.
+- **The offline path is unaffected and still full-fidelity.** `agentboard export -data DIR` (server stopped, reading
+  `board.json` straight off disk) and the new `Board.ExportWithCredentials` it could use both keep
+  `password_hash`/`salt`/`iterations`, because reaching that path already needs filesystem access to the data
+  directory - a materially higher bar than an unauthenticated network request. This is how moving a whole board,
+  accounts included, between machines is meant to work: stop the server, `export -data`, copy the file, `import`
+  it on the new machine. [`TestExportCredentialsOnlyOverTheOfflinePath`]

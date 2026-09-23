@@ -73,6 +73,10 @@ Runtime guarantees:
     way in); use `example.com`/`example.org` in every test and doc.
 13. Sessions are a random ID in an in-memory table (`sessionStore`), never a JWT or anything self-describing:
     revocation (logout) must stay real, not "delete the client's copy and hope".
+14. `Board.Export` (used by `GET /api/export` and therefore `agentboard export`/`dump` without `-data`) never
+    includes any `User`'s `password_hash`/`salt`/`iterations`, regardless of auth state: that endpoint is
+    network-reachable with no filesystem access needed, a materially lower bar than the offline `export -data`
+    path. Use `Board.ExportWithCredentials` only for that offline, filesystem-gated path (AGENTBOARD-11).
 
 ## Roadmap
 - Timeline view follow-ups (deliberately out of scope for AGENTBOARD-6): dragging a bar to reschedule it, a
