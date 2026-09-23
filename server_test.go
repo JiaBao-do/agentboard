@@ -131,7 +131,7 @@ func TestAPIFlowThroughClient(t *testing.T) {
 		t.Fatalf("state = %+v err=%v", snap, err)
 	}
 	st, err := c.Export(ctx)
-	if err != nil || st.Version != 1 || len(st.Tasks) != 2 {
+	if err != nil || st.Version != agentboard.SchemaVersion || len(st.Tasks) != 2 {
 		t.Fatalf("export = %+v err=%v", st, err)
 	}
 	if err := agentboard.ValidateState(st); err != nil {

@@ -148,16 +148,45 @@ type Activity struct {
 // SchemaVersion is the version of the persisted State format. It is
 // written to every saved file so that newer data is never silently
 // misread by older binaries; see docs/DATA_FORMAT.md.
-const SchemaVersion = 1
+//
+// Version 2 added Users (human accounts with credentials, distinct from the
+// self-declared, credential-less Agent).
+const SchemaVersion = 2
+
+// User is a human account authenticated by email and password, used to log
+// in to the web UI. It is distinct from Agent: an Agent is a self-declared
+// worker with no credentials (attribution, not access control; see
+// requireActor), while a User has a verified identity. agentboard never
+// stores or can recover a User's plaintext password, only verify a match.
+type User struct {
+	// Email is normalized to lower case and is the primary key (also the
+	// map key in State.Users).
+	Email string `json:"email"`
+	// PasswordHash is the PBKDF2-HMAC-SHA256 derived key of the password,
+	// never the plaintext and never anything reversible to it.
+	PasswordHash []byte `json:"password_hash"`
+	// Salt is random per user (crypto/rand, at least 16 bytes), so that two
+	// users with the same password get different hashes.
+	Salt []byte `json:"salt"`
+	// Iterations is the PBKDF2 work factor used to compute PasswordHash. It
+	// is stored per user (not assumed to be the current default) so the
+	// default can be raised later without invalidating existing hashes.
+	Iterations int       `json:"iterations"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at,omitempty"`
+}
 
 // State is everything a Store persists.
 type State struct {
-	Version        int                 `json:"version"`
-	Projects       map[string]*Project `json:"projects"`
-	Tasks          map[string]*Task    `json:"tasks"`
-	Agents         map[string]*Agent   `json:"agents"`
-	Activity       []Activity          `json:"activity"`
-	NextActivityID int64               `json:"next_activity_id"`
+	Version  int                 `json:"version"`
+	Projects map[string]*Project `json:"projects"`
+	Tasks    map[string]*Task    `json:"tasks"`
+	Agents   map[string]*Agent   `json:"agents"`
+	// Users holds human accounts (email/password), added in schema version
+	// 2. Keyed by normalized (lower case) email.
+	Users          map[string]*User `json:"users"`
+	Activity       []Activity       `json:"activity"`
+	NextActivityID int64            `json:"next_activity_id"`
 	// ArchivedThrough is the highest activity ID moved to the archive files.
 	ArchivedThrough int64 `json:"archived_through,omitempty"`
 }
@@ -169,6 +198,7 @@ func NewState() *State {
 		Projects: map[string]*Project{},
 		Tasks:    map[string]*Task{},
 		Agents:   map[string]*Agent{},
+		Users:    map[string]*User{},
 	}
 }
 

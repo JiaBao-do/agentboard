@@ -33,6 +33,10 @@ type Snapshot = model.Snapshot
 // TaskDetail is a task with its full timeline.
 type TaskDetail = model.TaskDetail
 
+// SchemaVersion is the version of the persisted State format; see
+// model.SchemaVersion.
+const SchemaVersion = model.SchemaVersion
+
 // Task statuses.
 const (
 	StatusTodo       = model.StatusTodo

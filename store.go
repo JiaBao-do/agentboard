@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/JiaBao-do/agentboard/model"
@@ -258,7 +259,7 @@ func DecodeFile(b []byte) (st *model.State, legacy bool, err error) {
 // predating the "version" field still named at least "projects" and "tasks"
 // (see the fixtures in hierarchy_test.go). So a real export or legacy board
 // file always has at least one of these keys at the top level.
-var stateKeys = []string{"version", "projects", "tasks", "agents", "activity", "next_activity_id", "archived_through"}
+var stateKeys = []string{"version", "projects", "tasks", "agents", "users", "activity", "next_activity_id", "archived_through"}
 
 // looksLikeBoard reports (as a wrapped ErrInvalid) when b's top-level JSON
 // object has none of stateKeys. That is the real gap behind a silent-wipe
@@ -316,6 +317,9 @@ func DecodeState(b []byte) (*model.State, error) {
 	if st.Agents == nil {
 		st.Agents = map[string]*model.Agent{}
 	}
+	if st.Users == nil {
+		st.Users = map[string]*model.User{}
+	}
 	if err := ValidateState(st); err != nil {
 		return nil, err
 	}
@@ -338,6 +342,9 @@ func migrate(st *model.State) {
 			}
 		}
 	}
+	// Version 2 added Users; older files simply lack the field, and the nil
+	// map is initialised right after migrate() runs, so there is nothing to
+	// transform here.
 	st.Version = model.SchemaVersion
 }
 
@@ -401,6 +408,17 @@ func ValidateState(st *model.State) error {
 	for name, a := range st.Agents {
 		if a == nil || a.Name != name {
 			return invalid("agent key %q does not match its name", name)
+		}
+	}
+	for email, u := range st.Users {
+		if u == nil || u.Email != email {
+			return invalid("user key %q does not match its email", email)
+		}
+		if email != strings.ToLower(email) {
+			return invalid("user key %q must be lower case", email)
+		}
+		if len(u.PasswordHash) == 0 || len(u.Salt) == 0 || u.Iterations <= 0 {
+			return invalid("user %q has an incomplete credential record", email)
 		}
 	}
 	var prev int64

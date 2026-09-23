@@ -340,6 +340,8 @@ func (s *Server) reply(w http.ResponseWriter, okStatus int, v any, err error) {
 		status = http.StatusBadRequest
 	case errors.Is(err, ErrClaimed), errors.Is(err, ErrNotOwner), errors.Is(err, ErrExists):
 		status = http.StatusConflict
+	case errors.Is(err, ErrBadCredentials):
+		status = http.StatusUnauthorized
 	default:
 		s.o.Logger.Error("agentboard: request failed", "err", err)
 		err = errors.New("internal error")

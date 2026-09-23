@@ -36,6 +36,12 @@ var (
 	ErrClaimed  = errors.New("task is claimed by another agent")
 	ErrNotOwner = errors.New("task is owned by another agent")
 	ErrExists   = errors.New("already exists")
+	// ErrBadCredentials is returned by Authenticate for both an unknown
+	// email and a correct-email-wrong-password login: the same error and
+	// (approximately) the same latency for both, so a caller cannot use
+	// the response to discover which emails are registered. The HTTP
+	// server maps it to 401.
+	ErrBadCredentials = errors.New("invalid email or password")
 )
 
 const (
@@ -97,6 +103,13 @@ type Options struct {
 	// MaxActivity is the live activity log size that triggers archiving; the
 	// newest half is kept. Default: 5000 entries.
 	MaxActivity int
+	// AllowedEmailDomains, if non-empty, restricts Register to email
+	// addresses at these domains (case-insensitive, e.g. "example.com").
+	// Empty (default): any syntactically valid email may register. This is
+	// deliberately a runtime setting, never a hardcoded value, so the
+	// public source carries no organization-specific domain; see
+	// docs/PITFALLS.md.
+	AllowedEmailDomains []string
 }
 
 // SaveMode selects the persistence strategy.
@@ -112,14 +125,15 @@ const (
 
 // Board is the task board. All methods are safe for concurrent use.
 type Board struct {
-	mu       sync.Mutex
-	st       *model.State
-	store    Store
-	now      func() time.Time
-	agentTTL time.Duration
-	lease    time.Duration
-	subs     map[int]chan Event
-	nextSub  int
+	mu                  sync.Mutex
+	st                  *model.State
+	store               Store
+	now                 func() time.Time
+	agentTTL            time.Duration
+	lease               time.Duration
+	subs                map[int]chan Event
+	nextSub             int
+	allowedEmailDomains []string // lower case, normalized once in Open
 
 	// Write-behind persistence. saveMu serialises saves (lock order: saveMu,
 	// then mu). The fields below it are guarded by mu.
@@ -175,6 +189,12 @@ func Open(o Options) (*Board, error) {
 	if err != nil {
 		return nil, err
 	}
+	var domains []string
+	for _, d := range o.AllowedEmailDomains {
+		if d = strings.ToLower(strings.TrimSpace(d)); d != "" {
+			domains = append(domains, d)
+		}
+	}
 	b := &Board{
 		st: st, store: o.Store, now: o.Now,
 		agentTTL: o.AgentTTL, lease: o.Lease,
@@ -182,6 +202,7 @@ func Open(o Options) (*Board, error) {
 		archiveDir: o.ArchiveDir, maxActivity: o.MaxActivity,
 		mode: o.SaveMode, debounce: o.SaveDebounce, maxLatency: o.SaveMaxLatency,
 		kick: make(chan struct{}, 1), stop: make(chan struct{}),
+		allowedEmailDomains: domains,
 	}
 	if b.mode == SaveAsync {
 		b.wg.Add(1)
@@ -386,6 +407,7 @@ func (b *Board) snapshotStateLocked() *model.State {
 		Projects:        make(map[string]*model.Project, len(b.st.Projects)),
 		Tasks:           make(map[string]*model.Task, len(b.st.Tasks)),
 		Agents:          make(map[string]*model.Agent, len(b.st.Agents)),
+		Users:           make(map[string]*model.User, len(b.st.Users)),
 		Activity:        b.st.Activity[:len(b.st.Activity):len(b.st.Activity)],
 		NextActivityID:  b.st.NextActivityID,
 		ArchivedThrough: b.st.ArchivedThrough,
@@ -401,6 +423,10 @@ func (b *Board) snapshotStateLocked() *model.State {
 	for k, a := range b.st.Agents {
 		ca := cloneAgent(a)
 		c.Agents[k] = &ca
+	}
+	for k, u := range b.st.Users {
+		cu := cloneUser(u)
+		c.Users[k] = &cu
 	}
 	return c
 }
@@ -596,6 +622,13 @@ func validateMeta(m map[string]string) error {
 func cloneAgent(a *model.Agent) model.Agent {
 	c := *a
 	c.Meta = maps.Clone(a.Meta)
+	return c
+}
+
+func cloneUser(u *model.User) model.User {
+	c := *u
+	c.PasswordHash = append([]byte(nil), u.PasswordHash...)
+	c.Salt = append([]byte(nil), u.Salt...)
 	return c
 }
 
