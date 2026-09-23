@@ -115,3 +115,67 @@ zero-valued, internally-consistent `State` — it is refused with "does not look
 version-coupled). The committed pair was built with Go 1.27. Rebuild both together with `go generate ./internal/webui`; the
 library itself compiles from Go 1.24. The wasm is 4.6 MB raw and about 1.3 MB gzipped on the wire. Commit a rebuilt wasm
 only when UI code changed: every version stays in git history forever. [`TestEmbeddedFiles`]
+
+## 10. User accounts, sessions and passwords (AGENTBOARD-8)
+
+**agentboard has no TLS of its own, and it binds `127.0.0.1` by default.** A password submitted to a non-loopback
+address over plain HTTP travels in cleartext on the wire. User accounts are built for the same deployments this whole
+project targets: localhost, or a TLS-terminating reverse proxy in front (see pitfall 4). Do **not** point a browser at
+a raw, non-loopback `agentboard serve` and type a real password into it. If you do put a reverse proxy in front, also
+set `-cookie-secure` (below) once that proxy speaks HTTPS to the browser - otherwise the session cookie itself is
+still marked as sendable over plain HTTP.
+
+```sh
+# WRONG: real credentials over plain HTTP to a non-loopback address.
+agentboard serve -addr 0.0.0.0:7878 -token $TOKEN
+# RIGHT: TLS terminates in front (nginx/caddy/etc.), agentboard stays on loopback behind it, and the cookie is marked Secure.
+agentboard serve -addr 127.0.0.1:7878 -cookie-secure
+```
+
+- **Passwords are never recoverable, only verifiable.** Hashing is PBKDF2-HMAC-SHA256 (`crypto/hmac`, `crypto/sha256`,
+  `crypto/rand`, `crypto/subtle` - standard library only, no `golang.org/x/crypto`), 600,000 iterations (OWASP's
+  current minimum for PBKDF2-HMAC-SHA256), a fresh random 16+ byte salt per user, and a constant-time comparison on
+  verify. Two users with the same password get different hashes. [`TestPBKDF2SHA256KnownVectors`,
+  `TestHashPasswordUniqueSaltAndHash`, `TestVerifyPasswordNearMiss`]
+- **Domains are never hardcoded.** Restrict who can register with `-allowed-email-domains`/`AGENTBOARD_ALLOWED_EMAIL_DOMAINS`
+  (comma separated); empty (the default) allows any syntactically valid email. There is no built-in domain anywhere in
+  this source, tests or docs - only `example.com`/`example.org`. [`TestRegisterDomainAllowlist`]
+- **Sessions are a random server-side token, not a JWT.** `POST /api/auth/login` sets an HttpOnly, `SameSite=Strict`
+  cookie naming a 256-bit random ID in an in-memory table; nothing about who you are is encoded in the cookie itself,
+  so it cannot be decoded, only looked up. That also means **sessions do not survive a restart** - a deliberate
+  trade-off for a tool at this scale, not an oversight. `-session-ttl` (default 24h) is a *sliding* window: it resets
+  on every validated request, so an idle browser is logged out, not an actively used one. [`TestSessionStoreLifecycle`,
+  `TestSessionStoreSlidingExpiry`]
+- **Logout really ends the session.** `POST /api/auth/logout` deletes the server-side record, so a captured or
+  replayed cookie value stops working immediately - it is not merely told to the browser to forget. This is the
+  practical difference between a real session and a stateless signed token, which cannot be revoked before it expires.
+  [`TestLogoutInvalidatesSessionServerSide`]
+- **Login is throttled per account, not per IP.** `POST /api/auth/login` refuses further attempts for one (normalized)
+  email after 10 failures in 15 minutes. This is a basic, in-memory, best-effort guard against a single naive scripted
+  attacker guessing one account's password - it is **not** a persistent or distributed rate limiter, does not survive
+  a restart, and does nothing against an attacker trying many different emails at low volume each (a WAF or a
+  reverse-proxy-level limiter is the right tool for that; out of scope here, consistent with this tool's
+  solo/trusted-team threat model). [`TestLoginRateLimiting`, `TestLoginLimiter`]
+- **Login and registration cannot be used to enumerate accounts.** An unknown email and a correct-email-wrong-password
+  login both fail with the same error and, deliberately, about the same latency (an unknown email still pays a
+  PBKDF2-sized cost against a fixed dummy hash) - a timing difference between the two would otherwise leak which
+  emails are registered. [`TestAuthenticateUnknownEmailTakesSimilarTimeToWrongPassword`]
+- **A session identifies who you are; it does not gate anything.** Every existing endpoint (tasks, agents, export,
+  `admin/shutdown`, ...) works exactly the same whether or not anyone is logged in - the `Token`/`AllowedHosts`/
+  loopback-bind protections in pitfall 4 are still the only access control. This is intentional (see CLAUDE.md
+  invariant 11): existing CLI and agent workflows must never be forced to log in. Logging in only changes which name
+  the *web UI's own writes* are attributed under (see pitfall 5: this was already attribution, not access control,
+  for agents - a logged-in human account does not change that model, it just replaces a free-typed name with a
+  verified one). [`TestAPIFlowThroughClient` still passes unauthenticated end to end]
+- **No account-deletion or password-change endpoint yet** (see CLAUDE.md roadmap), so there is nothing yet that needs
+  to invalidate *every* session for an account at once beyond a single logout. If you add one, invalidate every
+  session for that email at the same time, not just the one that triggered it - a stolen session should not survive
+  its own victim changing their password.
+
+```sh
+# curl equivalents (see examples/auth-demo for the same flow through the Go client):
+curl -sS -c cookies.txt -X POST http://127.0.0.1:7878/api/auth/register \
+  -H 'Content-Type: application/json' -d '{"email":"dev@example.com","password":"correct horse battery staple"}'
+curl -sS -b cookies.txt http://127.0.0.1:7878/api/auth/me
+curl -sS -b cookies.txt -X POST http://127.0.0.1:7878/api/auth/logout -H 'Content-Type: application/json' -d '{}'
+```

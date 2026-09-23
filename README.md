@@ -41,11 +41,15 @@ agentboard task done "$id"
 ```
 
 Runnable programs are in [`examples/`](examples): `quickstart` (embed the server, under 30 lines), `client-agent` (a Go
-agent), `shell-agent` (`.sh` and `.ps1`), `webhook-receiver` (verifies signatures). Their outputs are checked by tests.
+agent), `shell-agent` (`.sh` and `.ps1`), `webhook-receiver` (verifies signatures), `auth-demo` (register, log in, log
+out, and confirm the existing unauthenticated agent workflow still works). Their outputs are checked by tests.
 Integrations for Claude Code hooks and automation loops are docs only: [`docs/examples`](docs/examples).
 
 ## Features
 
+- User accounts (email + password) for the web UI, separate from the existing self-declared `Agent`: register, log
+  in and log out at `/api/auth/*` or the UI's Account panel. This is authentication only, not a new access-control
+  layer - see "Things to care about" below and [`examples/auth-demo`](examples/auth-demo).
 - Epic → story → task hierarchy, statuses `todo / in_progress / review / done / blocked`, priorities, labels.
 - Live board over Server-Sent Events, agent presence, activity timeline, dark/light theme, Stop button.
 - REST API, Go client, CLI (`serve`, `task`, `agent`, `status`, `export`, `import`, `dump`, `demo`, `stop`), generic signed webhook.
@@ -60,7 +64,16 @@ Full list with wrong/right snippets and the tests that back each claim: [docs/PI
 - One writer per data directory; a second server or an offline command refuses and names the PID.
 - Saving is asynchronous: a graceful stop loses nothing, a hard crash can lose up to 2 s. `-save-mode sync` trades speed for it.
 - Binds to `127.0.0.1`. Never expose the port (or the shutdown endpoint) without a token and TLS in front.
-- Agent names are self-declared: attribution, not access control.
+- Agent names are self-declared: attribution, not access control. The same is true of a logged-in User session - it
+  changes which name the UI's own writes are attributed under, not what any endpoint will accept; see point below.
+- **User accounts have no TLS of their own either.** Passwords are hashed (PBKDF2-HMAC-SHA256, 600k iterations,
+  standard library only) and never recoverable, but a password *submitted* to a non-loopback address over plain HTTP
+  still travels in cleartext on the wire - put TLS in front (same as the shutdown endpoint above) before exposing
+  login off of localhost, and set `-cookie-secure` once you do. Sessions are a random server-side token in memory
+  (never a JWT): they do not survive a restart, and `-session-ttl` (24h default) is a sliding window. Logout really
+  invalidates the session server-side. Registration domains are never hardcoded: `-allowed-email-domains` is opt-in
+  and empty by default. Failed logins are throttled per account (10/15min) as a basic guard, not a substitute for a
+  real rate limiter. Full detail, including exactly what the login throttle does and does not defend against: [docs/PITFALLS.md](docs/PITFALLS.md#10-user-accounts-sessions-and-passwords-agentboard-8).
 - Behind a proxy, turn response buffering off for `/api/events`.
 - `board.json` is binary: use `export`/`import`, back up the whole data directory.
 - `app.wasm` and `wasm_exec.js` must come from the same Go release (committed pair: Go 1.27); rebuild with `go generate ./internal/webui`.

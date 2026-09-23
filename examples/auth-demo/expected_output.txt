@@ -1,0 +1,7 @@
+registered dev@example.com
+me: dev@example.com (logged in)
+logged out
+me: not logged in (as expected)
+wrong password rejected
+logged in again: dev@example.com
+task created without logging in: DEMO-1
