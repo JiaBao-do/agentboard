@@ -58,6 +58,16 @@ func act(e js.Value, name, id string) js.Value {
 	return e
 }
 
+// closest walks up from v to the nearest ancestor-or-self matching sel, or
+// js.Null() if v is not an element (event targets can be the document or a
+// text node) or no ancestor matches.
+func closest(v js.Value, sel string) js.Value {
+	if v.Type() != js.TypeObject || !v.Get("closest").Truthy() {
+		return js.Null()
+	}
+	return v.Call("closest", sel)
+}
+
 func dataOf(e js.Value, key string) string {
 	v := e.Get("dataset").Get(key)
 	if v.Type() != js.TypeString {

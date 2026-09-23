@@ -32,8 +32,7 @@ type app struct {
 	snap     model.Snapshot
 	detail   *model.TaskDetail
 	selected string
-	project  string
-	epic     string
+	filter   view.Filter
 	showNew  bool
 	loaded   bool
 	stopped  bool
@@ -41,6 +40,7 @@ type app struct {
 	needAuth bool
 	loadErr  string
 	notice   string
+	dragging bool
 	refresh  chan struct{}
 }
 
@@ -49,6 +49,7 @@ func main() {
 		root:    doc.Call("getElementById", "app"),
 		refresh: make(chan struct{}, 1),
 	}
+	a.filter = view.ParseFilterQuery(global.Get("location").Get("search").String())
 	a.token = tokenFromHash()
 	if a.token != "" {
 		storageSet(tokenKey, a.token)
@@ -171,10 +172,21 @@ func (a *app) setUser(name string) {
 }
 
 func (a *app) bind() {
-	for _, name := range []string{"click", "change", "submit"} {
+	for _, name := range []string{"click", "change", "submit", "input"} {
 		typ := name
 		a.root.Call("addEventListener", typ, js.FuncOf(func(_ js.Value, args []js.Value) any {
 			a.dispatch(typ, args[0])
+			return nil
+		}))
+	}
+	// Drag-and-drop uses its own delegated listeners: dragover/drop must
+	// find the enclosing column even when the pointer is over a card, which
+	// the generic closest("[data-action]") lookup below would not do (a
+	// card's own data-action="select" is a closer match than the column's).
+	for _, name := range []string{"dragstart", "dragover", "drop", "dragend"} {
+		typ := name
+		a.root.Call("addEventListener", typ, js.FuncOf(func(_ js.Value, args []js.Value) any {
+			a.dispatchDrag(typ, args[0])
 			return nil
 		}))
 	}
@@ -183,17 +195,16 @@ func (a *app) bind() {
 // dispatch runs synchronously inside the JS event, so it only reads the DOM
 // and then hands the network work to a goroutine.
 func (a *app) dispatch(typ string, ev js.Value) {
-	target := ev.Get("target")
-	if target.Type() != js.TypeObject || !target.Get("closest").Truthy() {
-		return
-	}
-	n := target.Call("closest", "[data-action]")
+	n := closest(ev.Get("target"), "[data-action]")
 	if n.IsNull() {
 		return
 	}
 	name, id := dataOf(n, "action"), dataOf(n, "id")
 	switch typ + " " + name {
 	case "click select":
+		if a.dragging {
+			return // a drag just ended on this card; do not also open it
+		}
 		a.selected, a.detail = id, nil
 		a.render()
 		a.poke()
@@ -218,11 +229,29 @@ func (a *app) dispatch(typ string, ev js.Value) {
 		a.setUser(n.Get("value").String())
 		a.render()
 	case "change project":
-		a.project = n.Get("value").String()
-		a.render()
+		a.filter.Project = n.Get("value").String()
+		a.filterChanged()
 	case "change epic":
-		a.epic = n.Get("value").String()
-		a.render()
+		a.filter.Epic = n.Get("value").String()
+		a.filterChanged()
+	case "input query":
+		a.filter.Query = n.Get("value").String()
+		a.filterChanged()
+	case "change status-filter":
+		a.filter.Status = model.Status(n.Get("value").String())
+		a.filterChanged()
+	case "change assignee-filter":
+		a.filter.Assignee = n.Get("value").String()
+		a.filterChanged()
+	case "change type-filter":
+		a.filter.Type = model.Kind(n.Get("value").String())
+		a.filterChanged()
+	case "change priority-filter":
+		a.filter.Priority = model.Priority(n.Get("value").String())
+		a.filterChanged()
+	case "click clear-filters":
+		a.filter = view.Filter{}
+		a.filterChanged()
 	case "change set-status":
 		a.act("PATCH", "/api/tasks/"+id, map[string]any{"status": n.Get("value").String(), "actor": a.user()}, nil)
 	case "change set-priority":
@@ -254,6 +283,84 @@ func (a *app) dispatch(typ string, ev js.Value) {
 		a.connect()
 		a.poke()
 	}
+}
+
+// dispatchDrag implements HTML5 drag-and-drop between board columns. A drop
+// calls the same PATCH /api/tasks/{id} endpoint the drawer's status
+// dropdown uses (see "change set-status" above), so the server's lease and
+// claim rules are the only ones ever enforced; the client makes no status
+// decision of its own.
+func (a *app) dispatchDrag(typ string, ev js.Value) {
+	target := ev.Get("target")
+	switch typ {
+	case "dragstart":
+		card := closest(target, "[draggable]")
+		if card.IsNull() {
+			return
+		}
+		id := dataOf(card, "id")
+		if id == "" {
+			return
+		}
+		a.dragging = true
+		if dt := ev.Get("dataTransfer"); dt.Truthy() {
+			dt.Call("setData", "text/plain", id)
+			dt.Set("effectAllowed", "move")
+		}
+	case "dragover":
+		zone := closest(target, "[data-drop-status]")
+		if zone.IsNull() {
+			return
+		}
+		ev.Call("preventDefault") // required to become a valid drop target
+		clearDragOver()
+		zone.Get("classList").Call("add", "drag-over")
+	case "drop":
+		clearDragOver()
+		zone := closest(target, "[data-drop-status]")
+		if zone.IsNull() {
+			return
+		}
+		ev.Call("preventDefault")
+		status := dataOf(zone, "dropStatus")
+		dt := ev.Get("dataTransfer")
+		if status == "" || !dt.Truthy() {
+			return
+		}
+		id := dt.Call("getData", "text/plain").String()
+		if id == "" {
+			return
+		}
+		a.act("PATCH", "/api/tasks/"+id, map[string]any{"status": status, "actor": a.user()}, nil)
+	case "dragend":
+		a.dragging = false
+		clearDragOver()
+	}
+}
+
+// clearDragOver removes the hover highlight from every column; called
+// before re-adding it to the current target and on drop/dragend so a stray
+// column never keeps the highlight after the pointer leaves it.
+func clearDragOver() {
+	cols := doc.Call("querySelectorAll", ".column.drag-over")
+	for i := range cols.Get("length").Int() {
+		cols.Call("item", i).Get("classList").Call("remove", "drag-over")
+	}
+}
+
+// filterChanged re-renders after a filter control changes and mirrors the
+// filter into the URL query string (replacing history, not pushing a new
+// entry) so a filtered view is shareable and survives a reload — the same
+// history.replaceState pattern tokenFromHash uses to keep the address bar
+// in sync (see api.go).
+func (a *app) filterChanged() {
+	loc := global.Get("location")
+	u := loc.Get("pathname").String()
+	if qs := view.FilterQuery(a.filter); qs != "" {
+		u += "?" + qs
+	}
+	global.Get("history").Call("replaceState", js.Null(), "", u)
+	a.render()
 }
 
 // stopServer asks the server to shut down, then shows the stopped screen and

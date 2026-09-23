@@ -42,12 +42,15 @@ func (a *app) page() js.Value {
 	if a.selected != "" {
 		drawer = a.drawer()
 	}
+	var filterbar js.Value
 	body := a.board()
 	if len(a.snap.Projects) == 0 {
 		body = a.firstProject()
+	} else {
+		filterbar = a.filterbar()
 	}
 	return el("div", "app",
-		a.topbar(), banner, newPanel,
+		a.topbar(), filterbar, banner, newPanel,
 		el("div", "layout", body, a.sidebar()),
 		drawer,
 	)
@@ -67,12 +70,12 @@ func (a *app) topbar() js.Value {
 	for _, p := range a.snap.Projects {
 		opts = append(opts, [2]string{p.Key, p.Key + " · " + p.Name})
 	}
-	sel := act(selectEl("project", opts, a.project), "project", "")
+	sel := act(selectEl("project", opts, a.filter.Project), "project", "")
 	epicOpts := [][2]string{{"", "All epics"}}
 	for _, e := range view.Epics(a.snap.Tasks) {
 		epicOpts = append(epicOpts, [2]string{e.ID, e.ID + " · " + e.Title})
 	}
-	epicSel := act(selectEl("epic", epicOpts, a.epic), "epic", "")
+	epicSel := act(selectEl("epic", epicOpts, a.filter.Epic), "epic", "")
 	newBtn := act(el("button", "primary", "+ New task"), "new", "")
 	attr(newBtn, "type", "button")
 
@@ -118,7 +121,7 @@ func (a *app) newTaskForm() js.Value {
 	for _, p := range a.snap.Projects {
 		projects = append(projects, [2]string{p.Key, p.Key + " · " + p.Name})
 	}
-	cur := a.project
+	cur := a.filter.Project
 	if cur == "" && len(projects) > 0 {
 		cur = projects[0][0]
 	}
@@ -145,7 +148,8 @@ func (a *app) newTaskForm() js.Value {
 }
 
 func (a *app) board() js.Value {
-	cols := view.Columns(view.InEpic(a.snap.Tasks, a.epic), a.project)
+	tasks := view.FilterTasks(view.InEpic(a.snap.Tasks, a.filter.Epic), a.filter)
+	cols := view.Columns(tasks, a.filter.Project)
 	nodes := make([]js.Value, 0, len(cols))
 	for _, c := range cols {
 		cards := make([]js.Value, 0, len(c.Tasks))
@@ -156,11 +160,55 @@ func (a *app) board() js.Value {
 		if len(cards) == 0 {
 			empty = el("div", "empty", "Nothing here")
 		}
-		nodes = append(nodes, el("section", "column",
+		// data-drop-status makes the whole column a drag-and-drop target;
+		// dropping a card here PATCHes its status (see dispatchDrag).
+		col := el("section", "column",
 			el("h2", "", el("span", "", c.Label), el("span", "", fmt.Sprint(len(c.Tasks)))),
-			cards, empty))
+			cards, empty)
+		attr(col, "data-drop-status", string(c.Status))
+		nodes = append(nodes, col)
 	}
 	return el("main", "board", nodes)
+}
+
+// filterbar is the combinable filter row: free-text search plus project,
+// status, assignee, type and priority narrowing. All fields live in
+// a.filter and are mirrored into the URL query string by filterChanged.
+func (a *app) filterbar() js.Value {
+	q := input("query", "Search title, description, labels…")
+	attr(q, "type", "search", "data-draft", "filter-query")
+	q.Set("value", a.filter.Query)
+	act(q, "query", "")
+
+	statusOpts := [][2]string{{"", "Any status"}}
+	for _, s := range model.Statuses {
+		statusOpts = append(statusOpts, [2]string{string(s), s.Label()})
+	}
+	statusSel := act(selectEl("", statusOpts, string(a.filter.Status)), "status-filter", "")
+
+	assigneeOpts := [][2]string{{"", "Any assignee"}, {view.Unassigned, "Unassigned"}}
+	for _, name := range view.Assignees(a.snap.Tasks) {
+		assigneeOpts = append(assigneeOpts, [2]string{name, name})
+	}
+	assigneeSel := act(selectEl("", assigneeOpts, a.filter.Assignee), "assignee-filter", "")
+
+	typeOpts := [][2]string{{"", "Any type"}}
+	for _, k := range model.Kinds {
+		typeOpts = append(typeOpts, [2]string{string(k), string(k)})
+	}
+	typeSel := act(selectEl("", typeOpts, string(a.filter.Type)), "type-filter", "")
+
+	prioOpts := [][2]string{{"", "Any priority"}}
+	for _, p := range model.Priorities {
+		prioOpts = append(prioOpts, [2]string{string(p), string(p)})
+	}
+	prioSel := act(selectEl("", prioOpts, string(a.filter.Priority)), "priority-filter", "")
+
+	var clear js.Value
+	if !a.filter.Empty() {
+		clear = attr(act(el("button", "", "Clear filters"), "clear-filters", ""), "type", "button")
+	}
+	return el("div", "filterbar", q, statusSel, assigneeSel, typeSel, prioSel, clear)
 }
 
 func (a *app) agentTag(name string) js.Value {
@@ -208,7 +256,10 @@ func (a *app) card(t model.Task) js.Value {
 		el("div", "row", labels),
 		el("div", "row", foot...),
 	), "select", t.ID)
-	return attr(b, "type", "button")
+	// draggable + data-id (from act above) let dispatchDrag move the task
+	// between columns; the status dropdown in the drawer is the
+	// keyboard/touch fallback for changing status without a mouse drag.
+	return attr(b, "type", "button", "draggable", "true")
 }
 
 func (a *app) sidebar() js.Value {
