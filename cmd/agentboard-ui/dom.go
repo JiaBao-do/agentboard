@@ -4,8 +4,10 @@ package main
 
 import (
 	"errors"
+	"strconv"
 	"syscall/js"
 
+	"github.com/JiaBao-do/agentboard/internal/view"
 	"github.com/JiaBao-do/agentboard/model"
 )
 
@@ -134,6 +136,21 @@ func dateInput(name string, d *model.Date) js.Value {
 
 func field(label string, control js.Value) js.Value {
 	return el("label", "", label, control)
+}
+
+// avatarEl renders an agent's per-agent avatar: a small colored badge with
+// its initials (view.Initials, from name) on a background chosen by hashing
+// kind (view.AvatarPalette), so agents that share a kind share a color while
+// staying individually distinguishable by their initials. It is computed
+// client-side from data already on the Agent record - no fetched image, no
+// stored file, no external service (CLAUDE.md invariant 1) - and is cheap
+// enough to build on every render (a hash plus a couple of string ops) since
+// only a handful of agents are ever shown at once. It never replaces the
+// existing online/offline dot: callers place this alongside that dot, not
+// instead of it, so that signal stays visible on its own.
+func avatarEl(kind, name string) js.Value {
+	class := "avatar avatar-" + strconv.Itoa(view.AvatarPalette(kind))
+	return attr(el("span", class, view.Initials(name)), "aria-hidden", "true")
 }
 
 // await blocks the calling goroutine until the promise settles. Never call

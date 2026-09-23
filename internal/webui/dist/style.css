@@ -257,3 +257,43 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   .fixit-gear, .fixit-bot, .fixit-arm { animation: none; }
 }
+
+/* Per-agent avatars (AGENTBOARD-12): a small colored badge with the agent's
+   initials, computed entirely client-side from data already on the Agent
+   record (internal/view's AvatarPalette hashes kind into one of these 10
+   colors, Initials derives the letters from name) - no fetched image, no
+   stored file, no external service (CLAUDE.md invariant 1). Agents sharing a
+   kind share a color; individual agents stay distinguishable by their
+   initials. The colors are fixed, saturated badge tones (not theme tokens)
+   so they read the same and keep enough contrast against the white avatar
+   text in both light and dark mode; they deliberately avoid --online/
+   --danger's exact hues so an avatar is never mistaken for the separate
+   online/offline dot it sits next to. */
+:root {
+  --avatar-0: #e64980;
+  --avatar-1: #ae3ec9;
+  --avatar-2: #7048e8;
+  --avatar-3: #4263eb;
+  --avatar-4: #1c7ed6;
+  --avatar-5: #1098ad;
+  --avatar-6: #0ca678;
+  --avatar-7: #5c940d;
+  --avatar-8: #d9480f;
+  --avatar-9: #495057;
+  --avatar-text: #ffffff;
+}
+.avatar {
+  width: 20px; height: 20px; border-radius: 6px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; line-height: 1; color: var(--avatar-text);
+}
+.avatar-0 { background: var(--avatar-0); }
+.avatar-1 { background: var(--avatar-1); }
+.avatar-2 { background: var(--avatar-2); }
+.avatar-3 { background: var(--avatar-3); }
+.avatar-4 { background: var(--avatar-4); }
+.avatar-5 { background: var(--avatar-5); }
+.avatar-6 { background: var(--avatar-6); }
+.avatar-7 { background: var(--avatar-7); }
+.avatar-8 { background: var(--avatar-8); }
+.avatar-9 { background: var(--avatar-9); }

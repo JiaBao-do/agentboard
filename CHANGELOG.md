@@ -17,6 +17,15 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
   accounts: re-register on the new board. See docs/PITFALLS.md #12.
 
 ### Added
+- Per-agent avatars (AGENTBOARD-12), shown wherever an agent's identity is shown (the agents sidebar panel, the
+  "view all" agents popup, task assignee tags, and activity/timeline actor tags): a small colored badge with the
+  agent's initials, computed entirely client-side from data already on the `Agent` record - no fetched image, no
+  identicon service, no stored file, no new dependency (CLAUDE.md invariant 1). The background color is a
+  deterministic hash of the agent's free-text `kind` into a fixed 10-color palette, so agents sharing a kind (e.g.
+  several `claude-code` agents) share a color, while the initials (from `name`) keep individual agents
+  distinguishable; `internal/view`'s `AvatarPalette` and existing `Initials` are unit tested (same kind -> same
+  color, spot-checked real kinds give more than one color, and edge cases - empty/unicode/very long names - never
+  panic). The avatar sits alongside, never in place of, the existing online/offline dot.
 - Timeline (Gantt) view foundation: `Task` gained optional `StartDate`/`EndDate` calendar dates (schema version 3;
   see docs/DATA_FORMAT.md), settable and clearable with `agentboard task update ID -start YYYY-MM-DD -end
   YYYY-MM-DD` (`-start clear`/`-end clear` removes one without touching the other) and over `PATCH /api/tasks/{id}`.

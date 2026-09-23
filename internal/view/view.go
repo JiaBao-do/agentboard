@@ -5,6 +5,7 @@ package view
 
 import (
 	"fmt"
+	"hash/fnv"
 	"sort"
 	"strings"
 	"time"
@@ -100,6 +101,19 @@ func AgentOnline(agents []model.Agent, name string) bool {
 	return false
 }
 
+// AgentKind returns the kind of the named agent, or "" if no agent by that
+// name is registered. Used to color an agent's avatar (AvatarPalette)
+// consistently for every place its identity is shown, even where only a
+// bare name is on hand (e.g. a task's Assignee field).
+func AgentKind(agents []model.Agent, name string) string {
+	for _, a := range agents {
+		if a.Name == name {
+			return a.Kind
+		}
+	}
+	return ""
+}
+
 // TaskTitle returns the title of the task with the given id, or "".
 func TaskTitle(tasks []model.Task, id string) string {
 	for _, t := range tasks {
@@ -139,6 +153,29 @@ func Describe(a model.Activity) string {
 		return a.Action + " " + a.Detail
 	}
 	return a.Action
+}
+
+// AvatarPaletteSize is the number of distinct avatar background colors
+// (AvatarPalette's return value is always in [0, AvatarPaletteSize)). Kept
+// small and fixed so colors stay visually distinct rather than shading into
+// each other, and so agents sharing a kind reliably land on the same color.
+const AvatarPaletteSize = 10
+
+// AvatarPalette maps an agent's kind to a deterministic index into a small,
+// fixed avatar color palette (see style.css's .avatar-0.. classes), so every
+// agent reporting the same free-text kind ("claude-code", "agent",
+// "builder", ...) is drawn with the same background color - the "similar
+// ones reuse the same avatar" behavior - while an agent's own initials
+// (Initials) keep individual agents visually distinguishable even when they
+// share a color. kind has no fixed enum in this project (it is arbitrary,
+// ad hoc free text set by whatever registered the agent), so this hashes
+// the string with FNV-1a rather than looking it up in a maintained table:
+// it handles any input, including "", without panicking, and never changes
+// across calls (no time or randomness involved) or across process restarts.
+func AvatarPalette(kind string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(kind)) // hash.Hash.Write on a Go hash never errors
+	return int(h.Sum32() % AvatarPaletteSize)
 }
 
 // Initials returns up to two upper case letters for an avatar.
@@ -258,13 +295,14 @@ type ActorState struct {
 	Agent  bool   // a registered agent (people and "system" are not)
 	Online bool   // heartbeat is recent: running now
 	Task   string // the task it reports working on, if any
+	Kind   string // the agent's free-text kind, "" if not a registered agent
 }
 
 // ActorOf looks the actor up among the registered agents.
 func ActorOf(agents []model.Agent, name string) ActorState {
 	for _, a := range agents {
 		if a.Name == name {
-			return ActorState{Agent: true, Online: a.Online, Task: a.CurrentTask}
+			return ActorState{Agent: true, Online: a.Online, Task: a.CurrentTask, Kind: a.Kind}
 		}
 	}
 	return ActorState{}

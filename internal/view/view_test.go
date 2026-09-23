@@ -1,6 +1,7 @@
 package view_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,57 @@ func TestAgentHelpers(t *testing.T) {
 	for in, want := range map[string]string{"claude-code-1": "CC", "alice": "A", "a.b_c": "AB", "": "?", "---": "?", "élan": "É"} {
 		if got := view.Initials(in); got != want {
 			t.Errorf("Initials(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAgentKind(t *testing.T) {
+	agents := []model.Agent{{Name: "alice", Kind: "claude-code"}, {Name: "bob", Kind: ""}}
+	if got := view.AgentKind(agents, "alice"); got != "claude-code" {
+		t.Errorf("AgentKind(alice) = %q", got)
+	}
+	if got := view.AgentKind(agents, "bob"); got != "" {
+		t.Errorf("AgentKind(bob) = %q, want empty kind", got)
+	}
+	if got := view.AgentKind(agents, "ghost"); got != "" {
+		t.Errorf("AgentKind(ghost) = %q, want empty for unknown agent", got)
+	}
+}
+
+func TestAvatarPalette(t *testing.T) {
+	// Same kind -> same color, regardless of which agent (name) asks: the
+	// function only ever looks at kind, so several different names sharing
+	// a kind trivially get the same index; this is the "similar ones reuse
+	// the same avatar" behavior the UI relies on.
+	kinds := []string{"claude-code", "agent", "builder", "", "script", "human-reviewer"}
+	for _, k := range kinds {
+		first := view.AvatarPalette(k)
+		if first < 0 || first >= view.AvatarPaletteSize {
+			t.Fatalf("AvatarPalette(%q) = %d, out of [0,%d)", k, first, view.AvatarPaletteSize)
+		}
+		for i := 0; i < 5; i++ {
+			if got := view.AvatarPalette(k); got != first {
+				t.Fatalf("AvatarPalette(%q) not stable/deterministic: got %d then %d", k, first, got)
+			}
+		}
+	}
+
+	// Different kinds -> different colors in most cases. A hash collision
+	// across this small a set of real observed kind strings would be rare
+	// but is not impossible, so this only spot checks that they don't ALL
+	// collide onto one color, never that there are zero collisions.
+	seen := map[int]bool{}
+	for _, k := range []string{"claude-code", "agent", "builder", "cli-bot", "reviewer"} {
+		seen[view.AvatarPalette(k)] = true
+	}
+	if len(seen) < 2 {
+		t.Fatalf("AvatarPalette gave the same color for every real kind string: %v", seen)
+	}
+
+	// Edge cases must not panic: empty, unicode, very long, whitespace-only.
+	for _, k := range []string{"", "  ", "a", "🤖", strings.Repeat("x", 500)} {
+		if got := view.AvatarPalette(k); got < 0 || got >= view.AvatarPaletteSize {
+			t.Errorf("AvatarPalette(%q) = %d, out of range", k, got)
 		}
 	}
 }
@@ -235,9 +287,9 @@ func TestLimit(t *testing.T) {
 
 func TestActorState(t *testing.T) {
 	agents := []model.Agent{
-		{Name: "batchx-builder", Online: true, CurrentTask: "AB-3"},
-		{Name: "idle-bot", Online: true},
-		{Name: "gone-bot"},
+		{Name: "batchx-builder", Kind: "claude-code", Online: true, CurrentTask: "AB-3"},
+		{Name: "idle-bot", Kind: "agent", Online: true},
+		{Name: "gone-bot", Kind: "builder"},
 	}
 	tests := []struct {
 		name  string
@@ -256,7 +308,10 @@ func TestActorState(t *testing.T) {
 			t.Errorf("%s: %+v %q, want agent=%v %q", tc.name, s, view.ActorText(s), tc.agent, tc.text)
 		}
 	}
-	if s := view.ActorOf(agents, "batchx-builder"); !s.Online || s.Task != "AB-3" {
+	if s := view.ActorOf(agents, "batchx-builder"); !s.Online || s.Task != "AB-3" || s.Kind != "claude-code" {
 		t.Errorf("state = %+v", s)
+	}
+	if s := view.ActorOf(agents, "user"); s.Kind != "" {
+		t.Errorf("non-agent actor got a kind: %+v", s)
 	}
 }

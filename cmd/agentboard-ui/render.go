@@ -259,7 +259,8 @@ func (a *app) agentTag(name string) js.Value {
 	if view.AgentOnline(a.snap.Agents, name) {
 		dot = "dot on"
 	}
-	return el("span", "agent-tag", el("span", dot), name)
+	kind := view.AgentKind(a.snap.Agents, name)
+	return el("span", "agent-tag", avatarEl(kind, name), el("span", dot), name)
 }
 
 func (a *app) card(t model.Task) js.Value {
@@ -355,7 +356,7 @@ func (a *app) agentRows(agents []model.Agent) []js.Value {
 			status = "working on " + ag.CurrentTask + " " + view.TaskTitle(a.snap.Tasks, ag.CurrentTask)
 		}
 		out = append(out, el("div", "agent",
-			el("div", "name", el("span", dot), ag.Name, el("span", "chip", ag.Kind)),
+			el("div", "name", avatarEl(ag.Kind, ag.Name), el("span", dot), ag.Name, el("span", "chip", ag.Kind)),
 			el("div", "small", status),
 			el("div", "muted small", "seen "+view.RelTime(a.snap.Now, ag.LastHeartbeat)),
 		))
@@ -593,8 +594,11 @@ func (a *app) childrenSection(t model.Task) js.Value {
 	)
 }
 
-// actorTag shows who did something: a live/finished dot for agents, plus
-// what the agent is working on. People ("user") and "system" get no dot.
+// actorTag shows who did something: a per-agent avatar (color by kind,
+// initials from name; see avatarEl), a live/finished dot for agents, plus
+// what the agent is working on. People ("user") and "system" get no dot, but
+// still get an avatar (empty kind, so a consistent neutral color) since the
+// avatar is a generic identity badge, not agent-only chrome.
 func (a *app) actorTag(name string) js.Value {
 	s := view.ActorOf(a.snap.Agents, name)
 	dot := el("span", "")
@@ -605,7 +609,7 @@ func (a *app) actorTag(name string) js.Value {
 		}
 		dot = el("span", cls)
 	}
-	tag := el("span", "agent-tag", dot, name)
+	tag := el("span", "agent-tag", avatarEl(s.Kind, name), dot, name)
 	if txt := view.ActorText(s); txt != "" {
 		tag.Call("appendChild", el("span", "muted small", " · "+txt))
 	}

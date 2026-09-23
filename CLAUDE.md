@@ -30,7 +30,9 @@ task tracker with agent presence and leases.
   small inline-SVG "working" illustration for the AGENTBOARD-9 view-all popup (`.modal-overlay`/`.modal-dialog` in
   style.css - the one custom modal pattern in the app; reuse it for future dialogs rather than a new one).
 - `internal/view`: pure UI logic (grouping, time formatting, and the Timeline/Gantt date math in `timeline.go` -
-  month/week bucketing, bar position and width), unit tested natively.
+  month/week bucketing, bar position and width), unit tested natively. `AvatarPalette` (hash of `Agent.Kind` into a
+  fixed 10-color palette) and `Initials` (from `Agent.Name`) back the per-agent avatar (AGENTBOARD-12), rendered by
+  `cmd/agentboard-ui/dom.go`'s `avatarEl` wherever an agent's identity is shown.
 - `internal/cli` + `cmd/agentboard`: the command line.
 - Timeline view (AGENTBOARD-6): `model.Date` (`model/date.go`) is a calendar date with no time-of-day/zone, used by
   `Task.StartDate`/`EndDate` (schema v3). `Board.Update` validates and applies them (tri-state `Patch.StartDate`/
