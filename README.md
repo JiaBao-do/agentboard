@@ -98,7 +98,7 @@ Full list with wrong/right snippets and the tests that back each claim: [docs/PI
 ## Requirements
 
 Go 1.24 or newer to build from source; released binaries need nothing. The committed WebAssembly UI was built with Go 1.27
-(4.7 MB raw, about 1.3 MB gzipped on the wire; it is committed only when UI code changes to keep the repository small).
+(4.9 MB raw, about 1.3 MB gzipped on the wire; it is committed only when UI code changes to keep the repository small).
 
 ## License
 

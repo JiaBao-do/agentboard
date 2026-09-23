@@ -54,14 +54,29 @@ type app struct {
 	accountTab  string // "login" or "register"
 	accountErr  string
 
-	// Sidebar "view all" state (AGENTBOARD-4): agents are never capped by
-	// the server, so showAllAgents just expands what is already in snap.
-	// Activity is capped in the snapshot (see board.go, snapshotActivity),
-	// so expanding it fetches the fuller list from /api/activity once and
-	// caches it in allActivity until the next page load.
-	showAllAgents   bool
-	showAllActivity bool
-	allActivity     []model.Activity
+	// Sidebar "view all" state (AGENTBOARD-4, and AGENTBOARD-9 which turned
+	// it into a popup): agents are never capped by the server, so the
+	// modal's agent list just shows everything already in snap. Activity is
+	// capped in the snapshot (see board.go, snapshotActivity), so opening
+	// the activity modal fetches the fuller list from /api/activity once
+	// and caches it in allActivity until the next page load.
+	allActivity []model.Activity
+
+	// AGENTBOARD-9: "view all" on either sidebar panel instead opens a
+	// modal (viewAllKind is "agents" or "activity", "" means closed) so the
+	// full list sits next to the working/fixing animation rather than
+	// replacing the sidebar panel in place.
+	viewAllKind string
+
+	// AGENTBOARD-6: the Timeline view shows one project's dated tasks as a
+	// Gantt chart. tab is "board" or "timeline"; timelineProject is which
+	// project (falls back to the board filter, then the first project);
+	// timelineStart/End is the visible date window, initialised lazily (see
+	// ensureTimelineWindow) so a fresh page still opens on "today".
+	tab             string
+	timelineProject string
+	timelineStart   model.Date
+	timelineEnd     model.Date
 
 	refresh chan struct{}
 }
@@ -174,6 +189,16 @@ func (a *app) loadAllActivity() {
 		}
 		a.render()
 	}()
+}
+
+// ensureTimelineWindow lazily initialises the Timeline view's date window to
+// a sensible current-month-ish default (view.DefaultWindow) the first time
+// it is needed, rather than at startup: the server's clock (a.snap.Now)
+// might not be loaded yet when the app struct is created.
+func (a *app) ensureTimelineWindow() {
+	if a.timelineStart.IsZero() {
+		a.timelineStart, a.timelineEnd = view.DefaultWindow(model.DateOf(a.snap.Now))
+	}
 }
 
 func asHTTP(err error, target **httpError) bool {
@@ -314,6 +339,16 @@ func (a *app) bind() {
 			return nil
 		}))
 	}
+	// Escape closes the "view all" modal (AGENTBOARD-9), the one custom
+	// modal dialog in the app; bound on document (not a.root) since it must
+	// work even while focus is inside the modal's own subtree.
+	doc.Call("addEventListener", "keydown", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if a.viewAllKind != "" && args[0].Get("key").String() == "Escape" {
+			a.viewAllKind = ""
+			a.render()
+		}
+		return nil
+	}))
 }
 
 // dispatch runs synchronously inside the JS event, so it only reads the DOM
@@ -400,14 +435,42 @@ func (a *app) dispatch(typ string, ev js.Value) {
 		a.filter = view.Filter{}
 		a.filterChanged()
 	case "click show-all-agents":
-		a.showAllAgents = !a.showAllAgents
+		a.viewAllKind = "agents"
 		a.render()
 	case "click show-all-activity":
-		a.showAllActivity = !a.showAllActivity
-		if a.showAllActivity && a.allActivity == nil {
+		a.viewAllKind = "activity"
+		if a.allActivity == nil {
 			a.loadAllActivity()
 		}
 		a.render()
+	case "click close-view-all":
+		a.viewAllKind = ""
+		a.render()
+	case "click tab-board":
+		a.tab = "board"
+		a.render()
+	case "click tab-timeline":
+		a.tab = "timeline"
+		a.ensureTimelineWindow()
+		a.render()
+	case "change timeline-project":
+		a.timelineProject = n.Get("value").String()
+		a.render()
+	case "click timeline-prev":
+		a.ensureTimelineWindow()
+		a.timelineStart, a.timelineEnd = view.ShiftWindow(a.timelineStart, a.timelineEnd, -1)
+		a.render()
+	case "click timeline-next":
+		a.ensureTimelineWindow()
+		a.timelineStart, a.timelineEnd = view.ShiftWindow(a.timelineStart, a.timelineEnd, 1)
+		a.render()
+	case "click timeline-today":
+		a.timelineStart, a.timelineEnd = view.DefaultWindow(model.DateOf(a.snap.Now))
+		a.render()
+	case "change set-start-date":
+		a.act("PATCH", "/api/tasks/"+id, map[string]any{"start_date": n.Get("value").String(), "actor": a.user()}, nil)
+	case "change set-end-date":
+		a.act("PATCH", "/api/tasks/"+id, map[string]any{"end_date": n.Get("value").String(), "actor": a.user()}, nil)
 	case "change set-status":
 		a.act("PATCH", "/api/tasks/"+id, map[string]any{"status": n.Get("value").String(), "actor": a.user()}, nil)
 	case "change set-priority":

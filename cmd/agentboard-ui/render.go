@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"syscall/js"
 	"time"
 
@@ -48,16 +49,23 @@ func (a *app) page() js.Value {
 		drawer = a.drawer()
 	}
 	var filterbar js.Value
-	body := a.board()
-	if len(a.snap.Projects) == 0 {
+	var body js.Value
+	switch {
+	case len(a.snap.Projects) == 0:
 		body = a.firstProject()
-	} else {
-		filterbar = a.filterbar()
+	case a.tab == "timeline":
+		body = a.timelineView()
+	default:
+		body, filterbar = a.board(), a.filterbar()
+	}
+	var modal js.Value
+	if a.viewAllKind != "" {
+		modal = a.viewAllModal()
 	}
 	return el("div", "app",
 		a.topbar(), filterbar, banner, newPanel, accountPanel,
 		el("div", "layout", body, a.sidebar()),
-		drawer,
+		drawer, modal,
 	)
 }
 
@@ -83,6 +91,7 @@ func (a *app) topbar() js.Value {
 	epicSel := act(selectEl("epic", epicOpts, a.filter.Epic), "epic", "")
 	newBtn := act(el("button", "primary", "+ New task"), "new", "")
 	attr(newBtn, "type", "button")
+	tabs := a.viewTabs()
 
 	dot, label := "dot", "reconnecting…"
 	if a.live {
@@ -96,15 +105,28 @@ func (a *app) topbar() js.Value {
 		saveTitle = save.LastError
 	}
 	saveChip := attr(el("span", saveClass, saveLabel), "title", saveTitle)
+	var boardControls js.Value
+	if a.tab != "timeline" {
+		boardControls = el("span", "row", sel, epicSel, newBtn)
+	}
 	return el("header", "topbar",
 		el("span", "brand", "agentboard"),
-		sel, epicSel, newBtn,
+		tabs, boardControls,
 		el("span", "spacer"),
 		a.identity(),
 		attr(act(el("button", "", "Stop server"), "stop", ""), "type", "button", "title", "Save and shut the server down"),
 		saveChip,
 		el("span", "live", el("span", dot), label),
 	)
+}
+
+// viewTabs switches the main panel between the Kanban board and the
+// AGENTBOARD-6 Timeline (Gantt) view; the sidebar and topbar identity stay
+// put either way.
+func (a *app) viewTabs() js.Value {
+	board := attr(act(el("button", tabClass(a.tab != "timeline"), "Board"), "tab-board", ""), "type", "button")
+	timeline := attr(act(el("button", tabClass(a.tab == "timeline"), "Timeline"), "tab-timeline", ""), "type", "button")
+	return el("span", "tabs", board, timeline)
 }
 
 // identity shows either the logged-in account (with a Log out button) or
@@ -282,16 +304,48 @@ func (a *app) card(t model.Task) js.Value {
 
 // sidebar shows two panels: the agents that have reported in, most
 // recently active first, and the board's recent activity. Each panel peeks
-// at sidebarPeek rows and offers a "view all" toggle when there is more
-// (AGENTBOARD-4) instead of silently truncating.
+// at sidebarPeek rows; "view all" (AGENTBOARD-4) opens the popup built by
+// viewAllModal (AGENTBOARD-9) with the same row rendering, so the peeked
+// and full lists always look identical.
 func (a *app) sidebar() js.Value {
 	sorted := view.SortAgentsByRecency(a.snap.Agents)
-	shownAgents := sorted
-	if !a.showAllAgents {
-		shownAgents = view.Limit(sorted, sidebarPeek)
+	agents := a.agentRows(view.Limit(sorted, sidebarPeek))
+	if len(agents) == 0 {
+		agents = []js.Value{el("div", "empty", "No agents have reported in yet.")}
 	}
-	agents := make([]js.Value, 0, len(shownAgents))
-	for _, ag := range shownAgents {
+
+	activity := view.Limit(a.snap.Activity, sidebarPeek)
+	moreActivity := len(a.snap.Activity) > sidebarPeek
+	recent := a.activityRows(activity)
+	if len(recent) == 0 {
+		recent = []js.Value{el("div", "empty", "No activity yet.")}
+	}
+
+	return el("aside", "side",
+		sideHead("Agents", len(sorted) > sidebarPeek, fmt.Sprintf("View all %d", len(sorted)), "show-all-agents"),
+		el("div", "side-list", agents),
+		sideHead("Recent activity", moreActivity, "View all", "show-all-activity"),
+		el("div", "side-list", recent),
+	)
+}
+
+// sideHead renders a sidebar section title, adding a "view all" control
+// (which opens the AGENTBOARD-9 popup) only when there is something to
+// view beyond the peeked rows already shown.
+func sideHead(title string, showToggle bool, label, action string) js.Value {
+	head := el("h2", "", title)
+	if !showToggle {
+		return el("div", "side-head", head)
+	}
+	toggle := attr(act(el("button", "link small", label), action, ""), "type", "button")
+	return el("div", "side-head", head, toggle)
+}
+
+// agentRows renders one row per agent, shared by the sidebar peek and the
+// AGENTBOARD-9 "view all" popup so both look identical.
+func (a *app) agentRows(agents []model.Agent) []js.Value {
+	out := make([]js.Value, 0, len(agents))
+	for _, ag := range agents {
 		dot := "dot"
 		if ag.Online {
 			dot = "dot on"
@@ -300,64 +354,71 @@ func (a *app) sidebar() js.Value {
 		if ag.CurrentTask != "" {
 			status = "working on " + ag.CurrentTask + " " + view.TaskTitle(a.snap.Tasks, ag.CurrentTask)
 		}
-		agents = append(agents, el("div", "agent",
+		out = append(out, el("div", "agent",
 			el("div", "name", el("span", dot), ag.Name, el("span", "chip", ag.Kind)),
 			el("div", "small", status),
 			el("div", "muted small", "seen "+view.RelTime(a.snap.Now, ag.LastHeartbeat)),
 		))
 	}
-	if len(agents) == 0 {
-		agents = append(agents, el("div", "empty", "No agents have reported in yet."))
-	}
-	agentsLabel := fmt.Sprintf("View all %d", len(sorted))
-	if a.showAllAgents {
-		agentsLabel = "Show fewer"
-	}
-
-	// The snapshot's activity is itself capped server-side (snapshotActivity
-	// in board.go), so "view all" fetches the fuller history from the
-	// existing /api/activity endpoint on first expand rather than pretending
-	// the capped list is complete.
-	activity := view.Limit(a.snap.Activity, sidebarPeek)
-	moreActivity := len(a.snap.Activity) > sidebarPeek
-	activityLabel := "View all"
-	if a.showAllActivity {
-		activityLabel = "Show fewer"
-		if a.allActivity != nil {
-			activity = a.allActivity
-		} else {
-			activity = a.snap.Activity // loading the fuller list; show what we have
-		}
-	}
-	recent := make([]js.Value, 0, len(activity))
-	for _, ev := range activity {
-		ts := attr(el("span", "timestamp", view.RelTime(a.snap.Now, ev.Time)), "title", ev.Time.Format(time.RFC1123))
-		recent = append(recent, el("div", "activity-row",
-			el("div", "small", a.actorTag(ev.Actor), " "+view.Describe(ev)+" "+ev.TaskID),
-			ts,
-		))
-	}
-	if len(recent) == 0 {
-		recent = append(recent, el("div", "empty", "No activity yet."))
-	}
-
-	return el("aside", "side",
-		sideHead("Agents", len(sorted) > sidebarPeek, agentsLabel, "show-all-agents"),
-		el("div", "side-list", agents),
-		sideHead("Recent activity", moreActivity || a.showAllActivity, activityLabel, "show-all-activity"),
-		el("div", "side-list", recent),
-	)
+	return out
 }
 
-// sideHead renders a sidebar section title, adding a "view all"/"show
-// fewer" toggle only when there is something to toggle.
-func sideHead(title string, showToggle bool, label, action string) js.Value {
-	head := el("h2", "", title)
-	if !showToggle {
-		return el("div", "side-head", head)
+// activityRows renders one row per activity entry, shared by the sidebar
+// peek and the AGENTBOARD-9 "view all" popup. Each row is two lines (who
+// did what, then a task chip and a dimmed relative time) rather than one
+// flex row split between a long description and a timestamp: the old
+// single-line layout let a long description push the timestamp around and
+// mashed the task ID straight onto the sentence text (AGENTBOARD-10).
+func (a *app) activityRows(activity []model.Activity) []js.Value {
+	out := make([]js.Value, 0, len(activity))
+	for _, ev := range activity {
+		ts := attr(el("span", "activity-time", view.RelTime(a.snap.Now, ev.Time)), "title", ev.Time.Format(time.RFC1123))
+		var meta js.Value
+		if ev.TaskID != "" {
+			meta = el("div", "activity-meta", el("span", "chip small", ev.TaskID), ts)
+		} else {
+			meta = el("div", "activity-meta", el("span", ""), ts)
+		}
+		out = append(out, el("div", "activity-row",
+			el("div", "activity-main", a.actorTag(ev.Actor), el("span", "activity-desc", view.Describe(ev))),
+			meta,
+		))
 	}
-	toggle := attr(act(el("button", "link small", label), action, ""), "type", "button")
-	return el("div", "side-head", head, toggle)
+	return out
+}
+
+// viewAllModal is the AGENTBOARD-9 popup: the full agents or activity list
+// (whichever "view all" was clicked, see a.viewAllKind) next to a small
+// working/fixing animation, closeable via the button or Escape (see bind).
+func (a *app) viewAllModal() js.Value {
+	var title string
+	var list []js.Value
+	switch a.viewAllKind {
+	case "agents":
+		sorted := view.SortAgentsByRecency(a.snap.Agents)
+		title = fmt.Sprintf("All agents (%d)", len(sorted))
+		list = a.agentRows(sorted)
+	case "activity":
+		items := a.snap.Activity
+		if a.allActivity != nil {
+			items = a.allActivity
+		}
+		title = fmt.Sprintf("Recent activity (%d)", len(items))
+		list = a.activityRows(items)
+	default:
+		return js.Undefined()
+	}
+	if len(list) == 0 {
+		list = []js.Value{el("div", "empty", "Nothing here yet.")}
+	}
+	closeBtn := attr(act(el("button", "", "Close"), "close-view-all", ""), "type", "button")
+	anim := el("div", "modal-anim", fixitAnimation(), el("p", "muted small", "hard at work…"))
+	dialog := el("div", "modal-dialog",
+		el("div", "row", el("h2", "", title), el("span", "spacer"), closeBtn),
+		el("div", "modal-body", anim, el("div", "side-list modal-list", list)),
+	)
+	attr(dialog, "role", "dialog", "aria-modal", "true", "aria-label", title)
+	return el("div", "modal-overlay", dialog)
 }
 
 func (a *app) drawer() js.Value {
@@ -392,6 +453,10 @@ func (a *app) drawer() js.Value {
 	if t.Description != "" {
 		desc = el("div", "desc", t.Description)
 	}
+	startInput := dateInput("start-date", t.StartDate)
+	act(startInput, "set-start-date", t.ID)
+	endInput := dateInput("end-date", t.EndDate)
+	act(endInput, "set-end-date", t.ID)
 
 	items := make([]js.Value, 0, len(a.detail.Activity))
 	for i := len(a.detail.Activity) - 1; i >= 0; i-- { // newest first
@@ -425,6 +490,8 @@ func (a *app) drawer() js.Value {
 			el("span", "muted", "Agent"), a.agentTag(t.Assignee),
 			el("span", "muted", "Lease"), el("span", "", lease),
 			el("span", "muted", "Labels"), el("span", "row", labels),
+			el("span", "muted", "Start date"), startInput,
+			el("span", "muted", "End date"), endInput,
 			el("span", "muted", "Created by"), el("span", "row", a.actorTag(t.CreatedBy), el("span", "muted small", view.RelTime(a.snap.Now, t.CreatedAt))),
 			el("span", "muted", "Updated by"), el("span", "row", a.actorTag(t.UpdatedBy), el("span", "muted small", view.RelTime(a.snap.Now, t.UpdatedAt))),
 		),
@@ -544,6 +611,137 @@ func (a *app) actorTag(name string) js.Value {
 	}
 	return tag
 }
+
+// timelineView is the AGENTBOARD-6 Gantt/roadmap view: one project's dated
+// tasks as horizontal bars under a month header with weekly gridlines. It
+// replaces the Kanban board (see page()) but keeps the same sidebar.
+func (a *app) timelineView() js.Value {
+	a.ensureTimelineWindow()
+
+	proj := a.timelineProject
+	if proj == "" {
+		proj = a.filter.Project
+	}
+	if proj == "" && len(a.snap.Projects) > 0 {
+		proj = a.snap.Projects[0].Key
+	}
+
+	var projOpts [][2]string
+	for _, p := range a.snap.Projects {
+		projOpts = append(projOpts, [2]string{p.Key, p.Key + " · " + p.Name})
+	}
+	projSel := act(selectEl("timeline-project", projOpts, proj), "timeline-project", "")
+	prevBtn := attr(act(el("button", "", "‹ Prev"), "timeline-prev", ""), "type", "button", "title", "One month earlier")
+	todayBtn := attr(act(el("button", "", "Today"), "timeline-today", ""), "type", "button")
+	nextBtn := attr(act(el("button", "", "Next ›"), "timeline-next", ""), "type", "button", "title", "One month later")
+	windowLabel := el("span", "timeline-window-label", view.WindowLabel(a.timelineStart, a.timelineEnd))
+	toolbar := el("div", "timeline-toolbar", projSel, prevBtn, todayBtn, nextBtn, windowLabel)
+
+	if proj == "" {
+		return el("main", "timeline", toolbar, el("div", "empty", "Create a project to use the Timeline view."))
+	}
+
+	var projectTasks []model.Task
+	for _, t := range a.snap.Tasks {
+		if t.Project == proj {
+			projectTasks = append(projectTasks, t)
+		}
+	}
+	dated := view.SortByStartDate(projectTasks)
+	months := view.MonthsInWindow(a.timelineStart, a.timelineEnd)
+	rows := view.TimelineRows(dated, a.timelineStart, a.timelineEnd)
+
+	var note js.Value
+	undated, omitted := len(projectTasks)-len(dated), len(dated)-len(rows)
+	if undated > 0 || omitted > 0 {
+		note = el("p", "muted small", fmt.Sprintf(
+			"%d task(s) without both a start and end date, and %d outside this window, are not shown.", undated, omitted))
+	}
+
+	return el("main", "timeline", toolbar, a.timelineChart(months, rows), note)
+}
+
+// timelineChart lays out the month header (with weekly gridlines) and one
+// row per dated task as a CSS grid: column 1 is a fixed-width label, column
+// 2 is the proportional date track shared by the header, the gridline
+// overlay and every bar, so they all line up exactly without JS layout
+// math beyond the day-fraction arithmetic already done in internal/view.
+func (a *app) timelineChart(months []view.Month, rows []view.TimelineRow) js.Value {
+	totalDays := view.DaysBetween(a.timelineStart, a.timelineEnd)
+	kids := make([]js.Value, 0, 4+3*len(rows))
+
+	spacer := el("div", "timeline-spacer")
+	attr(spacer, "style", "grid-column:1;grid-row:1")
+	kids = append(kids, spacer)
+
+	monthEls := make([]js.Value, 0, len(months))
+	var tickOffsets []float64 // week ticks as a fraction of the whole window, for the gridline overlay
+	for _, m := range months {
+		monthDays := view.DaysBetween(m.Start, m.End)
+		var ticks []js.Value
+		for _, wt := range m.WeekTicks {
+			tick := el("span", "timeline-month-tick", wt.Format("2"))
+			attr(tick, "style", fmt.Sprintf("left:%s%%", trimPct(pct(view.DaysBetween(m.Start, wt), monthDays))))
+			ticks = append(ticks, tick)
+			tickOffsets = append(tickOffsets, pct(view.DaysBetween(a.timelineStart, wt), totalDays))
+		}
+		monthEl := el("div", "timeline-month",
+			el("div", "timeline-month-label", m.Label),
+			el("div", "timeline-month-ticks", ticks),
+		)
+		attr(monthEl, "style", fmt.Sprintf("width:%s%%", trimPct(pct(monthDays, totalDays))))
+		monthEls = append(monthEls, monthEl)
+	}
+	header := el("div", "timeline-months", monthEls)
+	attr(header, "style", "grid-column:2;grid-row:1")
+	kids = append(kids, header)
+
+	rowSpan := len(rows)
+	if rowSpan == 0 {
+		rowSpan = 1
+	}
+	gridTicks := make([]js.Value, 0, len(tickOffsets))
+	for _, off := range tickOffsets {
+		line := el("span", "timeline-gridline")
+		attr(line, "style", fmt.Sprintf("left:%s%%", trimPct(off)))
+		gridTicks = append(gridTicks, line)
+	}
+	gridlines := el("div", "timeline-gridlines", gridTicks)
+	attr(gridlines, "style", fmt.Sprintf("grid-column:2;grid-row:2 / span %d", rowSpan))
+	kids = append(kids, gridlines)
+
+	if len(rows) == 0 {
+		empty := el("div", "empty", "No dated tasks in this window.")
+		attr(empty, "style", "grid-column:1 / -1;grid-row:2")
+		kids = append(kids, empty)
+	}
+	for i, r := range rows {
+		gridRow := i + 2
+		label := el("div", "timeline-row-label", el("span", "id", r.Task.ID), " "+r.Task.Title)
+		attr(label, "style", fmt.Sprintf("grid-column:1;grid-row:%d", gridRow))
+		kids = append(kids, label)
+
+		bar := act(el("button", "timeline-bar", r.Task.Title), "select", r.Task.ID)
+		attr(bar, "type", "button",
+			"style", fmt.Sprintf("left:%s%%;width:%s%%", trimPct(r.Left*100), trimPct(r.Width*100)),
+			"title", fmt.Sprintf("%s · %s (%s → %s)", r.Task.ID, r.Task.Title, r.Task.StartDate, r.Task.EndDate))
+		track := el("div", "timeline-track", bar)
+		attr(track, "style", fmt.Sprintf("grid-column:2;grid-row:%d", gridRow))
+		kids = append(kids, track)
+	}
+
+	return el("div", "timeline-chart", kids)
+}
+
+// pct returns part/total as a percentage, 0 for a non-positive total.
+func pct(part, total int) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(part) / float64(total) * 100
+}
+
+func trimPct(f float64) string { return strconv.FormatFloat(f, 'f', 4, 64) }
 
 // stoppedView replaces the board once the server has been stopped. It does
 // not guess a restart command: a static page served by the now-stopped

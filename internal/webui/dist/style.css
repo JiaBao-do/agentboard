@@ -116,12 +116,18 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 .agent { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .agent .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
 .agent:last-child { border-bottom: none; }
-.activity-row {
-  padding: 8px 0; border-bottom: 1px solid var(--border);
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-}
+/* Activity rows (AGENTBOARD-10): two clearly separated lines instead of one
+   flex row splitting a variable-length sentence against a timestamp, which
+   let long descriptions crowd or misalign the time. Line 1 is "who did
+   what" (actor tag + description); line 2 is the task chip (if any) on the
+   left and the dimmed relative time on the right, so both always land in
+   the same place regardless of how long the description is. */
+.activity-row { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .activity-row:last-child { border-bottom: none; }
-.timestamp { color: var(--muted); font-size: 11px; white-space: nowrap; flex: none; }
+.activity-main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.activity-desc { overflow-wrap: anywhere; }
+.activity-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; }
+.activity-time { color: var(--muted); font-size: 11px; white-space: nowrap; flex: none; }
 .empty { color: var(--muted); padding: 6px; }
 
 .drawer {
@@ -168,3 +174,86 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 .filterbar input[type="search"] { min-width: 220px; flex: 1 1 220px; }
 
 .column.drag-over { outline: 2px dashed var(--accent); outline-offset: -2px; }
+
+.chip.small { font-size: 10px; padding: 0 6px; }
+
+/* Board / Timeline tabs (AGENTBOARD-6) */
+.tabs { display: inline-flex; gap: 2px; background: var(--surface-2); border-radius: 8px; padding: 2px; }
+.tabs button { border: 0; background: none; border-radius: 6px; padding: 5px 12px; }
+.tabs button.primary { background: var(--surface); color: var(--text); box-shadow: var(--shadow); border-color: transparent; }
+
+/* Timeline / Gantt view (AGENTBOARD-6) */
+.timeline { padding: 16px; overflow: auto; }
+.timeline-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.timeline-window-label { color: var(--muted); font-size: 13px; margin-left: 6px; }
+.timeline-chart {
+  display: grid; grid-template-columns: 180px 1fr; grid-auto-rows: minmax(34px, auto);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.timeline-spacer { border-bottom: 1px solid var(--border); }
+.timeline-months { display: flex; border-bottom: 1px solid var(--border); }
+.timeline-month { position: relative; padding: 5px 8px 18px; border-left: 1px solid var(--border); box-sizing: border-box; min-width: 0; }
+.timeline-month:first-child { border-left: 0; }
+.timeline-month-label { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timeline-month-ticks { position: relative; height: 14px; margin-top: 2px; }
+.timeline-month-tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 10px; color: var(--muted); }
+.timeline-gridlines { position: relative; }
+.timeline-gridline { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border); opacity: 0.7; }
+.timeline-row-label {
+  display: flex; align-items: center; padding: 0 10px; font-size: 12px; border-top: 1px solid var(--border);
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; gap: 4px;
+}
+.timeline-row-label .id { color: var(--muted); }
+.timeline-track { position: relative; border-top: 1px solid var(--border); }
+.timeline-bar {
+  position: absolute; top: 6px; bottom: 6px; left: 0; border: 0; border-radius: 6px;
+  background: var(--accent); color: var(--accent-text); font-size: 11px; padding: 0 8px; text-align: left;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; min-width: 6px;
+}
+.timeline-bar:hover { filter: brightness(1.08); }
+@media (max-width: 700px) {
+  .timeline-chart { grid-template-columns: 110px 1fr; }
+  .timeline-row-label { font-size: 11px; padding: 0 6px; }
+}
+
+/* AGENTBOARD-9: "view all" popup (agents / activity) with a small working
+   animation, opened from the sidebar's "view all" links. */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(10, 14, 22, 0.45);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 20;
+}
+.modal-dialog {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+  width: min(640px, 100%); max-height: 82vh; display: flex; flex-direction: column; padding: 16px;
+}
+.modal-dialog h2 { margin: 0; font-size: 16px; }
+.modal-body { display: flex; gap: 18px; margin-top: 12px; overflow: hidden; flex: 1; }
+.modal-anim { flex: none; width: 120px; display: flex; flex-direction: column; align-items: center; }
+.modal-list-wrap, .modal-list { min-width: 0; }
+.modal-body .side-list.modal-list { flex: 1; overflow: auto; border-left: 1px solid var(--border); padding-left: 16px; }
+@media (max-width: 560px) {
+  .modal-body { flex-direction: column; }
+  .modal-anim { width: auto; flex-direction: row; gap: 10px; }
+  .modal-body .side-list.modal-list { border-left: 0; border-top: 1px solid var(--border); padding-left: 0; padding-top: 12px; }
+}
+
+/* The working/fixing illustration itself: a small bot bobbing while it
+   waves a wrench at a spinning gear. Pure SVG + CSS keyframes, no image
+   asset (see cmd/agentboard-ui/animation.go and CLAUDE.md invariant 1). */
+.fixit-anim { width: 96px; height: 96px; display: block; }
+.fixit-gear-body { fill: var(--surface-2); stroke: var(--border); stroke-width: 2; }
+.fixit-gear-hub { fill: var(--bg); }
+.fixit-gear { transform-box: fill-box; transform-origin: center; animation: fixit-spin 3.2s linear infinite; }
+.fixit-bot { transform-box: fill-box; transform-origin: center; animation: fixit-bob 1.6s ease-in-out infinite; }
+.fixit-bot-body { fill: var(--accent); }
+.fixit-bot-eye { fill: var(--accent-text); }
+.fixit-bot-smile { fill: none; stroke: var(--accent-text); stroke-width: 2; stroke-linecap: round; }
+.fixit-wrench { fill: var(--p-high); }
+.fixit-wrench-head { fill: var(--p-high); }
+.fixit-arm { transform-box: fill-box; transform-origin: left center; animation: fixit-wave 1.6s ease-in-out infinite; }
+@keyframes fixit-spin { to { transform: rotate(360deg); } }
+@keyframes fixit-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes fixit-wave { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(16deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .fixit-gear, .fixit-bot, .fixit-arm { animation: none; }
+}

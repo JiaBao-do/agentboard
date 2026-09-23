@@ -113,7 +113,7 @@ zero-valued, internally-consistent `State` — it is refused with "does not look
 
 `app.wasm` and `wasm_exec.js` are committed and must come from the same Go release (the loader and the runtime are
 version-coupled). The committed pair was built with Go 1.27. Rebuild both together with `go generate ./internal/webui`; the
-library itself compiles from Go 1.24. The wasm is 4.6 MB raw and about 1.3 MB gzipped on the wire. Commit a rebuilt wasm
+library itself compiles from Go 1.24. The wasm is 4.9 MB raw and about 1.3 MB gzipped on the wire. Commit a rebuilt wasm
 only when UI code changed: every version stays in git history forever. [`TestEmbeddedFiles`]
 
 ## 10. User accounts, sessions and passwords (AGENTBOARD-8)

@@ -5,6 +5,8 @@ package main
 import (
 	"errors"
 	"syscall/js"
+
+	"github.com/JiaBao-do/agentboard/model"
 )
 
 var (
@@ -40,6 +42,27 @@ func appendKid(e js.Value, k any) {
 			appendKid(e, c)
 		}
 	}
+}
+
+// svgNS is the SVG namespace; SVG elements must be created with
+// createElementNS, not createElement (el above), or the browser renders
+// them as unknown HTML elements instead of graphics.
+const svgNS = "http://www.w3.org/2000/svg"
+
+// svg creates an SVG element (tag "svg", "circle", "path", "g", ...) with
+// the given attributes, for the AGENTBOARD-9 working/fixing animation. Like
+// el, it never touches innerHTML.
+func svg(tag string, attrs map[string]string, kids ...js.Value) js.Value {
+	e := doc.Call("createElementNS", svgNS, tag)
+	for k, v := range attrs {
+		e.Call("setAttribute", k, v)
+	}
+	for _, k := range kids {
+		if !k.IsUndefined() && !k.IsNull() {
+			e.Call("appendChild", k)
+		}
+	}
+	return e
 }
 
 func attr(e js.Value, kv ...string) js.Value {
@@ -93,6 +116,19 @@ func selectEl(name string, opts [][2]string, cur string) js.Value {
 func input(name, placeholder string) js.Value {
 	i := el("input", "")
 	attr(i, "name", name, "placeholder", placeholder, "autocomplete", "off")
+	return i
+}
+
+// dateInput builds an HTML5 date input (native calendar picker, and its own
+// "clear" affordance in every evergreen browser) for a Timeline field
+// (AGENTBOARD-6). d.String() ("" for a nil/zero Date) is exactly the
+// "YYYY-MM-DD" format the input element's value expects.
+func dateInput(name string, d *model.Date) js.Value {
+	i := el("input", "")
+	attr(i, "name", name, "type", "date")
+	if d != nil {
+		i.Set("value", d.String())
+	}
 	return i
 }
 

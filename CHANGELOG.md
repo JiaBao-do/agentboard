@@ -22,7 +22,16 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
   YYYY-MM-DD` (`-start clear`/`-end clear` removes one without touching the other) and over `PATCH /api/tasks/{id}`.
   `EndDate` is never before `StartDate` when both are set. A version 2 board migrates with no data change (tasks
   simply have no dates yet). `internal/view` gained the pure date math (month/week bucketing, bar position and
-  width) the Timeline UI is built on, unit tested independently of the browser.
+  width) the Timeline UI is built on, unit tested independently of the browser. The UI gained a "Timeline" tab
+  showing one project's dated tasks as a Gantt chart: a month header with weekly gridlines, one proportionally
+  positioned/sized bar per dated task, undated tasks omitted, a "Today" reset and Prev/Next month navigation so
+  it never tries to render the whole project history at once. Start/end date inputs were added to the task
+  detail panel.
+- "View all" on the agents or activity sidebar panel now opens a popup showing the full list next to a small,
+  self-contained "working" animation (a bot waving a wrench at a spinning gear) - inline SVG geometry plus CSS
+  keyframes, no image asset and no external request, respecting `prefers-reduced-motion` and both themes.
+  Closeable with its button or Escape. WASM: 4.77 MiB -> 4.88 MiB raw (1.29 MiB -> 1.32 MiB gzipped) for the
+  Timeline view, the popup and the animation combined.
 - User accounts (email + password) for the web UI, distinct from the existing, credential-less `Agent`: `Board.Register`,
   `Board.Authenticate`, and `POST /api/auth/{register,login,logout}` + `GET /api/auth/me`. Passwords are hashed with
   PBKDF2-HMAC-SHA256 (600,000 iterations, OWASP's current minimum; standard-library only - no new dependency), a
@@ -39,6 +48,9 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
   The UI gained matching register/log-in forms and a "signed in as ..." / "Log out" header state.
 
 ### Changed
+- Activity rows (sidebar and the new "view all" popup) are now two lines - actor and description on one, a task
+  chip and a dimmed relative timestamp on the other - instead of one flex row that let a long description crowd
+  or misalign the timestamp.
 - **Behavior change:** the default data directory (`serve -data`/`AGENTBOARD_DATA`, when neither is given) is now
   `./data` instead of the hidden `./.agentboard`. This only changes the *default*; an explicit `-data` flag or
   `AGENTBOARD_DATA` still wins exactly as before. Existing deployments that relied on the old default and pass no

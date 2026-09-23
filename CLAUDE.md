@@ -26,7 +26,9 @@ task tracker with agent presence and leases.
   (the `/api/auth/*` HTTP handlers and the session cookie). `User` lives in `model.State` (schema v2); sessions do
   not - they are server-side, in-memory and ephemeral by design, so a restart logs everyone out.
 - `internal/webui/dist`: embedded UI (`index.html`, `boot.js`, `style.css`, `app.wasm`, `wasm_exec.js`).
-- `cmd/agentboard-ui`: the UI, Go with `syscall/js`; only builds for `GOOS=js GOARCH=wasm`.
+- `cmd/agentboard-ui`: the UI, Go with `syscall/js`; only builds for `GOOS=js GOARCH=wasm`. `animation.go` builds the
+  small inline-SVG "working" illustration for the AGENTBOARD-9 view-all popup (`.modal-overlay`/`.modal-dialog` in
+  style.css - the one custom modal pattern in the app; reuse it for future dialogs rather than a new one).
 - `internal/view`: pure UI logic (grouping, time formatting, and the Timeline/Gantt date math in `timeline.go` -
   month/week bucketing, bar position and width), unit tested natively.
 - `internal/cli` + `cmd/agentboard`: the command line.
