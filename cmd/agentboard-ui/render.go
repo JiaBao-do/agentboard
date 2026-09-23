@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"syscall/js"
+	"time"
 
 	"github.com/JiaBao-do/agentboard/internal/view"
 	"github.com/JiaBao-do/agentboard/model"
@@ -262,9 +263,18 @@ func (a *app) card(t model.Task) js.Value {
 	return attr(b, "type", "button", "draggable", "true")
 }
 
+// sidebar shows two panels: the agents that have reported in, most
+// recently active first, and the board's recent activity. Each panel peeks
+// at sidebarPeek rows and offers a "view all" toggle when there is more
+// (AGENTBOARD-4) instead of silently truncating.
 func (a *app) sidebar() js.Value {
-	agents := make([]js.Value, 0, len(a.snap.Agents))
-	for _, ag := range a.snap.Agents {
+	sorted := view.SortAgentsByRecency(a.snap.Agents)
+	shownAgents := sorted
+	if !a.showAllAgents {
+		shownAgents = view.Limit(sorted, sidebarPeek)
+	}
+	agents := make([]js.Value, 0, len(shownAgents))
+	for _, ag := range shownAgents {
 		dot := "dot"
 		if ag.Online {
 			dot = "dot on"
@@ -282,20 +292,55 @@ func (a *app) sidebar() js.Value {
 	if len(agents) == 0 {
 		agents = append(agents, el("div", "empty", "No agents have reported in yet."))
 	}
-	recent := make([]js.Value, 0, recentLimit)
-	for i, ev := range a.snap.Activity {
-		if i == recentLimit {
-			break
+	agentsLabel := fmt.Sprintf("View all %d", len(sorted))
+	if a.showAllAgents {
+		agentsLabel = "Show fewer"
+	}
+
+	// The snapshot's activity is itself capped server-side (snapshotActivity
+	// in board.go), so "view all" fetches the fuller history from the
+	// existing /api/activity endpoint on first expand rather than pretending
+	// the capped list is complete.
+	activity := view.Limit(a.snap.Activity, sidebarPeek)
+	moreActivity := len(a.snap.Activity) > sidebarPeek
+	activityLabel := "View all"
+	if a.showAllActivity {
+		activityLabel = "Show fewer"
+		if a.allActivity != nil {
+			activity = a.allActivity
+		} else {
+			activity = a.snap.Activity // loading the fuller list; show what we have
 		}
-		recent = append(recent, el("div", "agent",
+	}
+	recent := make([]js.Value, 0, len(activity))
+	for _, ev := range activity {
+		ts := attr(el("span", "timestamp", view.RelTime(a.snap.Now, ev.Time)), "title", ev.Time.Format(time.RFC1123))
+		recent = append(recent, el("div", "activity-row",
 			el("div", "small", a.actorTag(ev.Actor), " "+view.Describe(ev)+" "+ev.TaskID),
-			el("div", "muted small", view.RelTime(a.snap.Now, ev.Time)),
+			ts,
 		))
 	}
+	if len(recent) == 0 {
+		recent = append(recent, el("div", "empty", "No activity yet."))
+	}
+
 	return el("aside", "side",
-		el("h2", "", "Agents"), agents,
-		el("h2", "", "Recent activity"), recent,
+		sideHead("Agents", len(sorted) > sidebarPeek, agentsLabel, "show-all-agents"),
+		el("div", "side-list", agents),
+		sideHead("Recent activity", moreActivity || a.showAllActivity, activityLabel, "show-all-activity"),
+		el("div", "side-list", recent),
 	)
+}
+
+// sideHead renders a sidebar section title, adding a "view all"/"show
+// fewer" toggle only when there is something to toggle.
+func sideHead(title string, showToggle bool, label, action string) js.Value {
+	head := el("h2", "", title)
+	if !showToggle {
+		return el("div", "side-head", head)
+	}
+	toggle := attr(act(el("button", "link small", label), action, ""), "type", "button")
+	return el("div", "side-head", head, toggle)
 }
 
 func (a *app) drawer() js.Value {

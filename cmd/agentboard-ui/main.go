@@ -22,7 +22,8 @@ const (
 	userKey     = "agentboard.user"
 	defaultUser = "user"
 	pollEvery   = 20 * time.Second
-	recentLimit = 8
+	sidebarPeek = 5    // agents/activity rows shown before "view all"
+	fullHistory = 1000 // limit passed to /api/activity when expanded
 )
 
 type app struct {
@@ -41,7 +42,17 @@ type app struct {
 	loadErr  string
 	notice   string
 	dragging bool
-	refresh  chan struct{}
+
+	// Sidebar "view all" state (AGENTBOARD-4): agents are never capped by
+	// the server, so showAllAgents just expands what is already in snap.
+	// Activity is capped in the snapshot (see board.go, snapshotActivity),
+	// so expanding it fetches the fuller list from /api/activity once and
+	// caches it in allActivity until the next page load.
+	showAllAgents   bool
+	showAllActivity bool
+	allActivity     []model.Activity
+
+	refresh chan struct{}
 }
 
 func main() {
@@ -130,6 +141,27 @@ func (a *app) reloadDetail() {
 	if json.Unmarshal(data, &d) == nil {
 		a.detail = &d
 	}
+}
+
+// loadAllActivity fetches the fuller activity history for the "view all"
+// expansion of the Recent activity panel: the snapshot only carries the
+// newest snapshotActivity entries (see board.go), so this uses the
+// existing GET /api/activity?limit= endpoint instead of trimming what is
+// already in memory. Cached in a.allActivity until the next page load.
+func (a *app) loadAllActivity() {
+	go func() {
+		data, err := a.api("GET", fmt.Sprintf("/api/activity?limit=%d", fullHistory), nil)
+		if err != nil {
+			a.notice = err.Error()
+			a.render()
+			return
+		}
+		var acts []model.Activity
+		if json.Unmarshal(data, &acts) == nil {
+			a.allActivity = acts
+		}
+		a.render()
+	}()
 }
 
 func asHTTP(err error, target **httpError) bool {
@@ -250,6 +282,15 @@ func (a *app) dispatch(typ string, ev js.Value) {
 	case "click clear-filters":
 		a.filter = view.Filter{}
 		a.filterChanged()
+	case "click show-all-agents":
+		a.showAllAgents = !a.showAllAgents
+		a.render()
+	case "click show-all-activity":
+		a.showAllActivity = !a.showAllActivity
+		if a.showAllActivity && a.allActivity == nil {
+			a.loadAllActivity()
+		}
+		a.render()
 	case "change set-status":
 		a.act("PATCH", "/api/tasks/"+id, map[string]any{"status": n.Get("value").String(), "actor": a.user()}, nil)
 	case "change set-priority":

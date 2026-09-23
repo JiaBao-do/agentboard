@@ -186,6 +186,53 @@ func TestHierarchyHelpers(t *testing.T) {
 	}
 }
 
+func TestSortAgentsByRecency(t *testing.T) {
+	agents := []model.Agent{
+		{Name: "stale", LastHeartbeat: now.Add(-2 * time.Hour)},
+		{Name: "fresh", LastHeartbeat: now.Add(-time.Minute)},
+		{Name: "never"}, // zero LastHeartbeat sorts last
+		{Name: "mid", LastHeartbeat: now.Add(-time.Hour)},
+	}
+	got := view.SortAgentsByRecency(agents)
+	want := []string{"fresh", "mid", "stale", "never"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d", len(got), len(want))
+	}
+	for i, name := range want {
+		if got[i].Name != name {
+			t.Errorf("position %d = %q, want %q (order: %v)", i, got[i].Name, name, names(got))
+		}
+	}
+	// The input slice is untouched.
+	if agents[0].Name != "stale" {
+		t.Errorf("SortAgentsByRecency mutated its input: %v", agents)
+	}
+}
+
+func names(agents []model.Agent) []string {
+	out := make([]string, len(agents))
+	for i, a := range agents {
+		out[i] = a.Name
+	}
+	return out
+}
+
+func TestLimit(t *testing.T) {
+	s := []int{1, 2, 3, 4, 5}
+	if got := view.Limit(s, 3); len(got) != 3 || got[2] != 3 {
+		t.Errorf("Limit(5,3) = %v", got)
+	}
+	if got := view.Limit(s, 10); len(got) != 5 {
+		t.Errorf("Limit(5,10) should return all elements, got %v", got)
+	}
+	if got := view.Limit(s, 0); len(got) != 5 {
+		t.Errorf("Limit(5,0) should be unlimited, got %v", got)
+	}
+	if got := view.Limit([]int(nil), 3); got != nil {
+		t.Errorf("Limit(nil,3) = %v, want nil", got)
+	}
+}
+
 func TestActorState(t *testing.T) {
 	agents := []model.Agent{
 		{Name: "batchx-builder", Online: true, CurrentTask: "AB-3"},

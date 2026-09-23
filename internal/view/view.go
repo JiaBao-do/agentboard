@@ -284,3 +284,22 @@ func ActorText(s ActorState) string {
 	}
 	return "finished"
 }
+
+// SortAgentsByRecency returns a copy of agents ordered by most recent
+// heartbeat first. Online agents, having heartbeated recently by
+// definition, naturally sort to the top; an agent that has never sent a
+// heartbeat (zero LastHeartbeat) sorts last.
+func SortAgentsByRecency(agents []model.Agent) []model.Agent {
+	out := append([]model.Agent(nil), agents...)
+	sort.SliceStable(out, func(i, j int) bool { return out[i].LastHeartbeat.After(out[j].LastHeartbeat) })
+	return out
+}
+
+// Limit returns at most the first n elements of s (n <= 0 returns s
+// unchanged), for panels that show a short list with a "view all" control.
+func Limit[T any](s []T, n int) []T {
+	if n <= 0 || len(s) <= n {
+		return s
+	}
+	return s[:n]
+}

@@ -109,9 +109,19 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
 .side { border-left: 1px solid var(--border); background: var(--surface); padding: 14px; overflow: auto; }
-.side h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+.side h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+.side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 18px 0 6px; }
+.side-head:first-child { margin-top: 0; }
+.side-list { display: flex; flex-direction: column; }
 .agent { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .agent .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.agent:last-child { border-bottom: none; }
+.activity-row {
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+}
+.activity-row:last-child { border-bottom: none; }
+.timestamp { color: var(--muted); font-size: 11px; white-space: nowrap; flex: none; }
 .empty { color: var(--muted); padding: 6px; }
 
 .drawer {
