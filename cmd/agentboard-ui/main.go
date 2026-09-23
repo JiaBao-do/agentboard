@@ -43,6 +43,17 @@ type app struct {
 	notice   string
 	dragging bool
 
+	// account is the logged-in human's email, from GET /api/auth/me ("" if
+	// nobody is logged in on this browser). This is identity, not access
+	// control: every endpoint below still works the same whether or not
+	// anyone is logged in (see docs/PITFALLS.md and CLAUDE.md invariant 11);
+	// a logged-in identity only changes what a.user() returns, so writes are
+	// attributed to a real, verified person instead of a free-typed name.
+	account     string
+	showAccount bool
+	accountTab  string // "login" or "register"
+	accountErr  string
+
 	// Sidebar "view all" state (AGENTBOARD-4): agents are never capped by
 	// the server, so showAllAgents just expands what is already in snap.
 	// Activity is capped in the snapshot (see board.go, snapshotActivity),
@@ -71,6 +82,7 @@ func main() {
 	a.connect()
 	go a.loop()
 	a.poke()
+	a.checkAccount()
 	select {} // the page owns our lifetime
 }
 
@@ -174,8 +186,14 @@ func asHTTP(err error, target **httpError) bool {
 
 // bind installs one delegated listener per event type on the root. Nodes are
 // rebuilt on every render, so per-node listeners would leak.
-// user is the display name humans act under (never "anonymous").
+// user is the display name humans act under (never "anonymous"). A logged-in
+// account takes priority over the free-typed name: once you log in, your
+// writes are attributed to your real identity, not whatever name happened
+// to be in the box (see the app.account doc comment).
 func (a *app) user() string {
+	if a.account != "" {
+		return accountActor(a.account)
+	}
 	if u := storageGet(userKey); u != "" {
 		return u
 	}
@@ -184,6 +202,13 @@ func (a *app) user() string {
 
 // setUser stores a display name, replacing characters the API would refuse.
 func (a *app) setUser(name string) {
+	storageSet(userKey, sanitizeActor(name))
+}
+
+// sanitizeActor keeps only characters the server's actor pattern allows
+// (letters, digits, '.', '_', '-', starting with a letter or digit),
+// mapping anything else to '-'. Returns "" if nothing usable is left.
+func sanitizeActor(name string) string {
 	var b []rune
 	for _, r := range strings.TrimSpace(name) {
 		switch {
@@ -194,13 +219,80 @@ func (a *app) setUser(name string) {
 		}
 	}
 	if len(b) == 0 || !(b[0] >= 'a' && b[0] <= 'z' || b[0] >= 'A' && b[0] <= 'Z' || b[0] >= '0' && b[0] <= '9') {
-		storageSet(userKey, "")
-		return
+		return ""
 	}
 	if len(b) > 64 {
 		b = b[:64]
 	}
-	storageSet(userKey, string(b))
+	return string(b)
+}
+
+// accountActor derives an actor name from a logged-in email's local part
+// (before the "@"), which - unlike the full address - fits the server's
+// actor pattern. Falls back to defaultUser in the unlikely case nothing
+// usable survives sanitizing.
+func accountActor(email string) string {
+	local, _, _ := strings.Cut(email, "@")
+	if s := sanitizeActor(local); s != "" {
+		return s
+	}
+	return defaultUser
+}
+
+// checkAccount asks the server who, if anyone, is logged in on this browser
+// (GET /api/auth/me) and updates a.account. Called once at startup; login,
+// register and logout update a.account directly from their own response
+// instead of triggering another round trip.
+func (a *app) checkAccount() {
+	go func() {
+		data, err := a.api("GET", "/api/auth/me", nil)
+		if err != nil {
+			a.render()
+			return
+		}
+		var u struct {
+			Email string `json:"email"`
+		}
+		if json.Unmarshal(data, &u) == nil {
+			a.account = u.Email
+		}
+		a.render()
+	}()
+}
+
+// authSubmit posts email/password to path (/api/auth/login or
+// /api/auth/register) and, on success, adopts the returned account as
+// logged in and closes the account panel.
+func (a *app) authSubmit(path, email, password string) {
+	a.accountErr = ""
+	go func() {
+		data, err := a.api("POST", path, map[string]any{"email": email, "password": password})
+		if err != nil {
+			a.accountErr = err.Error()
+			a.render()
+			return
+		}
+		var u struct {
+			Email string `json:"email"`
+		}
+		if json.Unmarshal(data, &u) != nil || u.Email == "" {
+			a.accountErr = "unexpected response from the server"
+			a.render()
+			return
+		}
+		a.account, a.showAccount, a.accountErr = u.Email, false, ""
+		a.render()
+	}()
+}
+
+// logout ends the session server-side (so the cookie cannot be replayed)
+// and forgets the logged-in account client-side either way.
+func (a *app) logout() {
+	go func() {
+		_, _ = a.api("POST", "/api/auth/logout", map[string]any{})
+		a.account = ""
+		a.render()
+	}()
 }
 
 func (a *app) bind() {
@@ -258,6 +350,31 @@ func (a *app) dispatch(typ string, ev js.Value) {
 	case "change me":
 		a.setUser(n.Get("value").String())
 		a.render()
+	case "click show-account":
+		a.showAccount, a.accountErr = true, ""
+		if a.accountTab == "" {
+			a.accountTab = "login"
+		}
+		a.render()
+	case "click close-account":
+		a.showAccount = false
+		a.render()
+	case "click account-tab-login":
+		a.accountTab, a.accountErr = "login", ""
+		a.render()
+	case "click account-tab-register":
+		a.accountTab, a.accountErr = "register", ""
+		a.render()
+	case "click account-logout":
+		a.logout()
+	case "submit account-login":
+		ev.Call("preventDefault")
+		f := formValues(n, "email", "password")
+		a.authSubmit("/api/auth/login", f["email"], f["password"])
+	case "submit account-register":
+		ev.Call("preventDefault")
+		f := formValues(n, "email", "password")
+		a.authSubmit("/api/auth/register", f["email"], f["password"])
 	case "change project":
 		a.filter.Project = n.Get("value").String()
 		a.filterChanged()

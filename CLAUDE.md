@@ -20,6 +20,11 @@ task tracker with agent presence and leases.
 - `model/`: plain data types shared by server, client and the WASM UI (stdlib only, keep it tiny).
 - Root package `agentboard`: `Board` (all state + rules, one mutex), `Store` (persistence), `Server`
   (REST + SSE + static UI), `Client` (used by the CLI and by agents), `Webhook` (generic outgoing events).
+- Auth (AGENTBOARD-8): `pbkdf2.go` (stdlib-only PBKDF2-HMAC-SHA256), `auth.go` (`Board.Register`, email/password
+  validation, domain allowlist), `login.go` (`Board.Authenticate`, `Board.User`, transparent hash upgrade),
+  `sessions.go` (in-memory `sessionStore` + `loginLimiter`, owned by `Server`, not persisted), `auth_server.go`
+  (the `/api/auth/*` HTTP handlers and the session cookie). `User` lives in `model.State` (schema v2); sessions do
+  not - they are server-side, in-memory and ephemeral by design, so a restart logs everyone out.
 - `internal/webui/dist`: embedded UI (`index.html`, `boot.js`, `style.css`, `app.wasm`, `wasm_exec.js`).
 - `cmd/agentboard-ui`: the UI, Go with `syscall/js`; only builds for `GOOS=js GOARCH=wasm`.
 - `internal/view`: pure UI logic (grouping, time formatting), unit tested natively.
@@ -50,9 +55,24 @@ Runtime guarantees:
 8. `Board` serialises all calls; persistence is write-behind but `Flush`/`Close` always leave the store current.
 9. Every write names a real actor (never anonymous; `system` is reserved).
 10. `POST /api/admin/shutdown` requires POST + `X-Agentboard-Action` header + same-origin + allowed Host/token.
+11. User accounts authenticate identity for the web UI; they are **not** a new authorization boundary. Every
+    existing endpoint keeps working exactly as before whether or not anyone is logged in - the same `Token`/
+    `AllowedHosts`/loopback-bind protections (invariant 10 and `ServerOptions.Token`) are still the only access
+    control, same as an `Agent`'s self-declared name always was (see invariant 9 and README "Things to care
+    about"). Do not add a session requirement to any existing endpoint without a deliberate, separately-discussed
+    decision: the explicit design goal was that CLI/agent workflows never need to log in.
+12. Passwords: PBKDF2-HMAC-SHA256 only, stdlib-only (`crypto/hmac`, `crypto/sha256`, `crypto/rand`,
+    `crypto/subtle`), never a reversible scheme, never `golang.org/x/crypto` (a dependency). Never hardcode an
+    email domain anywhere in source, tests or docs (`AllowedEmailDomains`/`-allowed-email-domains` is the only
+    way in); use `example.com`/`example.org` in every test and doc.
+13. Sessions are a random ID in an in-memory table (`sessionStore`), never a JWT or anything self-describing:
+    revocation (logout) must stay real, not "delete the client's copy and hope".
 
 ## Roadmap
 - Drag and drop between columns, saved filters.
 - More export formats (CSV), import from other trackers.
 - Per-project WIP limits and lease policies.
 - Optional plain-JSON config file; import through the API while the server runs; a byte-size archive trigger.
+- Auth follow-ups (deliberately out of scope for AGENTBOARD-8): password change/reset, account deletion (and
+  the session invalidation that should go with it), roles/permissions beyond plain identity, persistent/
+  distributed rate limiting, TLS (documented as a reverse-proxy's job, not agentboard's).

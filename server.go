@@ -50,14 +50,29 @@ type ServerOptions struct {
 	// KeepAlive is the interval of SSE "tick" events, which also make UIs
 	// refresh presence. Default: 15 seconds.
 	KeepAlive time.Duration
+	// SessionTTL is how long a logged-in session stays valid after its last
+	// use (a sliding window: every validated request extends it). Default:
+	// 24 hours. Sessions are held in memory only (see docs/PITFALLS.md): a
+	// restart logs everyone out.
+	SessionTTL time.Duration
+	// CookieSecure sets the Secure attribute on the session cookie, which
+	// tells the browser to send it only over HTTPS. Leave it false for the
+	// default plain-HTTP loopback setup; set it true only when a
+	// TLS-terminating reverse proxy sits in front of agentboard (see
+	// docs/PITFALLS.md - agentboard itself never speaks TLS). A true value
+	// on a plain HTTP origin makes the browser silently refuse to ever send
+	// the cookie, so get this right for your deployment.
+	CookieSecure bool
 }
 
 // Server serves the REST API, the event stream and the embedded UI.
 type Server struct {
-	o      ServerOptions
-	mux    *http.ServeMux
-	static fs.FS
-	hosts  map[string]bool
+	o        ServerOptions
+	mux      *http.ServeMux
+	static   fs.FS
+	hosts    map[string]bool
+	sessions *sessionStore
+	logins   *loginLimiter
 
 	gzMu sync.Mutex
 	gz   map[string][]byte
@@ -77,7 +92,10 @@ func NewServer(o ServerOptions) *Server {
 	if o.KeepAlive <= 0 {
 		o.KeepAlive = 15 * time.Second
 	}
-	s := &Server{o: o, mux: http.NewServeMux(), static: o.Static, gz: map[string][]byte{}, done: make(chan struct{})}
+	s := &Server{
+		o: o, mux: http.NewServeMux(), static: o.Static, gz: map[string][]byte{}, done: make(chan struct{}),
+		sessions: newSessionStore(o.SessionTTL, nil), logins: newLoginLimiter(nil),
+	}
 	if s.static == nil {
 		s.static = webui.FS()
 	}
@@ -122,6 +140,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 				return
 			case <-t.C:
 				s.o.Board.Sweep()
+				s.sessions.sweep()
 			}
 		}
 	}()
@@ -259,6 +278,10 @@ func (s *Server) routes() {
 		w.Header().Set("Content-Disposition", `attachment; filename="agentboard-export.json"`)
 		writeJSON(w, http.StatusOK, st)
 	})
+	m.HandleFunc("POST /api/auth/register", s.handleRegister)
+	m.HandleFunc("POST /api/auth/login", s.handleLogin)
+	m.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	m.HandleFunc("GET /api/auth/me", s.handleMe)
 	m.HandleFunc("/api/admin/shutdown", s.shutdown)
 	m.HandleFunc("GET /api/events", s.events)
 	m.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
@@ -21,7 +22,9 @@ type APIError struct {
 func (e *APIError) Error() string { return fmt.Sprintf("agentboard: %d %s", e.Status, e.Message) }
 
 // Client talks to a running agentboard server. Agents, hooks and the CLI use
-// it. The zero HTTP field uses a client with a 30 second timeout.
+// it. The zero HTTP field uses a client with a 30 second timeout and no
+// cookie jar, so Login's session cookie would not carry over to later
+// calls; use NewClient, which sets one up, if you plan to call Login.
 type Client struct {
 	BaseURL string
 	Token   string
@@ -32,9 +35,15 @@ type Client struct {
 }
 
 // NewClient returns a Client for the server at baseURL, such as
-// "http://127.0.0.1:7878". token may be empty.
+// "http://127.0.0.1:7878". token may be empty. Its HTTP client keeps a
+// cookie jar, so a session started by Login (or Register) carries over to
+// later calls on the same Client, and Logout can clear it again.
 func NewClient(baseURL, token string) *Client {
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), Token: token}
+	jar, _ := cookiejar.New(nil) // nil options: cookiejar.New never errors
+	return &Client{
+		BaseURL: strings.TrimRight(baseURL, "/"), Token: token,
+		HTTP: &http.Client{Timeout: 30 * time.Second, Jar: jar},
+	}
 }
 
 func (c *Client) do(ctx context.Context, method, p string, in, out any) error {
@@ -171,6 +180,33 @@ func (c *Client) Comment(ctx context.Context, id, actor, text string) error {
 func (c *Client) Heartbeat(ctx context.Context, agent string, req HeartbeatRequest) (Agent, error) {
 	var a Agent
 	return a, c.do(ctx, http.MethodPost, "/api/agents/"+url.PathEscape(agent)+"/heartbeat", req, &a)
+}
+
+// Register creates a human account and, on success, logs it in: the
+// server starts a session and this call's HTTP client (see NewClient)
+// keeps its cookie for later calls.
+func (c *Client) Register(ctx context.Context, email, password string) (PublicUser, error) {
+	var u PublicUser
+	return u, c.do(ctx, http.MethodPost, "/api/auth/register", credentialsRequest{Email: email, Password: password}, &u)
+}
+
+// Login authenticates and starts a session; later calls on this Client
+// carry the resulting cookie (see NewClient). ErrBadCredentials-mapped
+// errors surface as an *APIError with Status 401.
+func (c *Client) Login(ctx context.Context, email, password string) (PublicUser, error) {
+	var u PublicUser
+	return u, c.do(ctx, http.MethodPost, "/api/auth/login", credentialsRequest{Email: email, Password: password}, &u)
+}
+
+// Logout ends the current session, if any, and clears its cookie.
+func (c *Client) Logout(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/api/auth/logout", struct{}{}, nil)
+}
+
+// Me returns the identity of the logged-in session on this Client, if any.
+func (c *Client) Me(ctx context.Context) (PublicUser, error) {
+	var u PublicUser
+	return u, c.do(ctx, http.MethodGet, "/api/auth/me", nil, &u)
 }
 
 // Export downloads the whole board state, for backups and moving a board

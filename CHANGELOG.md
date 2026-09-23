@@ -5,6 +5,22 @@ and the project uses [Semantic Versioning](https://semver.org/). It stays on `0.
 
 ## [Unreleased]
 
+### Added
+- User accounts (email + password) for the web UI, distinct from the existing, credential-less `Agent`: `Board.Register`,
+  `Board.Authenticate`, and `POST /api/auth/{register,login,logout}` + `GET /api/auth/me`. Passwords are hashed with
+  PBKDF2-HMAC-SHA256 (600,000 iterations, OWASP's current minimum; standard-library only - no new dependency), a
+  random per-user salt, and a constant-time comparison; the server never stores or can recover a plaintext password.
+  Logging in starts a server-side session (a random 256-bit ID in an in-memory table, never a JWT) carried by an
+  HttpOnly, `SameSite=Strict` cookie, sliding-expiry (24h by default, `-session-ttl`); logging out invalidates it
+  server-side, so a captured cookie stops working immediately, not just once it expires. Registration domains can be
+  restricted with `-allowed-email-domains`/`AGENTBOARD_ALLOWED_EMAIL_DOMAINS` (comma separated, empty: any domain -
+  this is a runtime setting only, never a hardcoded domain). Failed logins are throttled per account (10 per 15
+  minutes) as a basic brute-force guard; see docs/PITFALLS.md for exactly what that does and does not defend against.
+  **This is authentication only, not a new authorization layer**: every existing endpoint (tasks, agents, export,
+  shutdown, ...) still works exactly as before, with or without anyone logged in - a logged-in session only changes
+  which name the web UI's own writes are attributed under, so existing CLI/agent workflows need no changes at all.
+  The UI gained matching register/log-in forms and a "signed in as ..." / "Log out" header state.
+
 ### Changed
 - **Behavior change:** the default data directory (`serve -data`/`AGENTBOARD_DATA`, when neither is given) is now
   `./data` instead of the hidden `./.agentboard`. This only changes the *default*; an explicit `-data` flag or

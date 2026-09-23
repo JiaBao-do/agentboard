@@ -29,6 +29,7 @@ func (a *app) api(method, path string, body any) ([]byte, error) {
 	}
 	opts.Set("method", method)
 	opts.Set("cache", "no-store")
+	opts.Set("credentials", "same-origin") // send the session cookie to our own origin
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {

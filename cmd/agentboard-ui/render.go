@@ -39,6 +39,10 @@ func (a *app) page() js.Value {
 	if a.showNew {
 		newPanel = a.newTaskForm()
 	}
+	var accountPanel js.Value
+	if a.showAccount {
+		accountPanel = a.accountView()
+	}
 	var drawer js.Value
 	if a.selected != "" {
 		drawer = a.drawer()
@@ -51,7 +55,7 @@ func (a *app) page() js.Value {
 		filterbar = a.filterbar()
 	}
 	return el("div", "app",
-		a.topbar(), filterbar, banner, newPanel,
+		a.topbar(), filterbar, banner, newPanel, accountPanel,
 		el("div", "layout", body, a.sidebar()),
 		drawer,
 	)
@@ -92,19 +96,32 @@ func (a *app) topbar() js.Value {
 		saveTitle = save.LastError
 	}
 	saveChip := attr(el("span", saveClass, saveLabel), "title", saveTitle)
-	me := input("me", "your name")
-	me.Set("value", a.user())
-	attr(me, "size", "10", "title", "the name your changes are recorded under")
-	act(me, "me", "")
 	return el("header", "topbar",
 		el("span", "brand", "agentboard"),
 		sel, epicSel, newBtn,
 		el("span", "spacer"),
-		el("label", "small muted", "you: ", me),
+		a.identity(),
 		attr(act(el("button", "", "Stop server"), "stop", ""), "type", "button", "title", "Save and shut the server down"),
 		saveChip,
 		el("span", "live", el("span", dot), label),
 	)
+}
+
+// identity shows either the logged-in account (with a Log out button) or
+// the existing free-typed name box plus a Log in link. Logging in is
+// entirely optional: nothing here is required to use the board (see
+// app.account's doc comment and docs/PITFALLS.md).
+func (a *app) identity() js.Value {
+	if a.account != "" {
+		logout := attr(act(el("button", "link small", "Log out"), "account-logout", ""), "type", "button")
+		return el("span", "small muted", "signed in as ", el("strong", "", a.account), " ", logout)
+	}
+	me := input("me", "your name")
+	me.Set("value", a.user())
+	attr(me, "size", "10", "title", "the name your changes are recorded under")
+	act(me, "me", "")
+	login := attr(act(el("button", "link small", "Log in"), "show-account", ""), "type", "button")
+	return el("span", "small muted", "you: ", me, " ", login)
 }
 
 func (a *app) firstProject() js.Value {
@@ -430,6 +447,53 @@ func (a *app) authView() js.Value {
 		msg = el("p", "muted", "That token was rejected.")
 	}
 	return el("div", "panel", el("h2", "", "agentboard"), msg, form)
+}
+
+// accountView is the register/log in panel (AGENTBOARD-8). It is entirely
+// separate from authView above: authView is the server's access token
+// (ServerOptions.Token, shared by everyone with the token), while this is a
+// per-person account (email + password). A board can use either, both or
+// neither.
+func (a *app) accountView() js.Value {
+	tab := a.accountTab
+	if tab == "" {
+		tab = "login"
+	}
+	loginTab := attr(act(el("button", tabClass(tab == "login"), "Log in"), "account-tab-login", ""), "type", "button")
+	registerTab := attr(act(el("button", tabClass(tab == "register"), "Register"), "account-tab-register", ""), "type", "button")
+	closeBtn := attr(act(el("button", "", "Close"), "close-account", ""), "type", "button")
+
+	email := input("email", "you@example.com")
+	attr(email, "type", "email", "required", "", "autofocus", "", "autocapitalize", "off")
+	pw := input("password", "password")
+	attr(pw, "type", "password", "required", "", "minlength", "8",
+		"autocomplete", map[bool]string{true: "new-password", false: "current-password"}[tab == "register"])
+
+	action, submitLabel := "account-login", "Log in"
+	if tab == "register" {
+		action, submitLabel = "account-register", "Register (8+ character password)"
+	}
+	form := act(el("form", "form",
+		field("Email", email), field("Password", pw),
+		el("div", "row", attr(el("button", "primary", submitLabel), "type", "submit")),
+	), action, "")
+
+	var errMsg js.Value
+	if a.accountErr != "" {
+		errMsg = el("p", "banner", a.accountErr)
+	}
+	return el("div", "panel",
+		el("div", "row", el("h2", "", "Account"), el("span", "spacer"), closeBtn),
+		el("div", "row", loginTab, registerTab),
+		errMsg, form,
+	)
+}
+
+func tabClass(active bool) string {
+	if active {
+		return "primary"
+	}
+	return ""
 }
 
 // parentRow links to the parent task, if any.

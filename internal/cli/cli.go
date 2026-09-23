@@ -231,6 +231,11 @@ func (a *app) serve(args []string) error {
 		noShutdown  = fs.Bool("disable-shutdown", a.env("AGENTBOARD_DISABLE_SHUTDOWN") != "", "turn off POST /api/admin/shutdown [AGENTBOARD_DISABLE_SHUTDOWN]")
 		webhookURL  = fs.String("webhook", a.env("AGENTBOARD_WEBHOOK"), "POST every change event to this `URL` [AGENTBOARD_WEBHOOK]")
 		webhookKey  = fs.String("webhook-secret", a.env("AGENTBOARD_WEBHOOK_SECRET"), "sign webhook bodies with this `secret` [AGENTBOARD_WEBHOOK_SECRET]")
+		emailDomain = fs.String("allowed-email-domains", a.env("AGENTBOARD_ALLOWED_EMAIL_DOMAINS"),
+			"comma separated email `domains` allowed to register (e.g. example.com); empty: any domain [AGENTBOARD_ALLOWED_EMAIL_DOMAINS]")
+		sessionTTL   = fs.Duration("session-ttl", 24*time.Hour, "how long a logged-in session stays valid after its last use")
+		cookieSecure = fs.Bool("cookie-secure", a.env("AGENTBOARD_COOKIE_SECURE") != "",
+			"mark the session cookie Secure (only send it over HTTPS); set this only behind a TLS-terminating reverse proxy [AGENTBOARD_COOKIE_SECURE]")
 		allowedHost stringList
 	)
 	fs.Var(&allowedHost, "allow-host", "extra Host `name` to accept (repeatable), e.g. behind a reverse proxy")
@@ -282,6 +287,7 @@ func (a *app) serve(args []string) error {
 		Lease:    *lease,
 		AgentTTL: *agentTTL,
 		SaveMode: mode, SaveDebounce: *debounce, SaveMaxLatency: *maxLatency,
+		AllowedEmailDomains: splitList(*emailDomain),
 	})
 	if err != nil {
 		return err
@@ -296,6 +302,8 @@ func (a *app) serve(args []string) error {
 		Board:          board,
 		Token:          *token,
 		EnableShutdown: !*noShutdown,
+		SessionTTL:     *sessionTTL,
+		CookieSecure:   *cookieSecure,
 	}
 	if loopback {
 		so.AllowedHosts = []string{"localhost", "127.0.0.1", "::1"}
