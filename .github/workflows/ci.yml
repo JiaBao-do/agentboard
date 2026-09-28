@@ -87,7 +87,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: go build -trimpath -ldflags "-s -w" -o "agentboard-${{ matrix.goos }}-${{ matrix.goarch }}" ./cmd/agentboard
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: agentboard-${{ matrix.goos }}-${{ matrix.goarch }}
           path: agentboard-${{ matrix.goos }}-${{ matrix.goarch }}
